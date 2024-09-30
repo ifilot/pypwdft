@@ -1,6 +1,14 @@
 PyPWDFT: pure-python plane-wave density functional theory
 =========================================================
 
+.. image:: https://anaconda.org/ifilot/pypwdft/badges/version.svg
+   :target: https://anaconda.org/ifilot/pypwdft
+.. image:: https://img.shields.io/pypi/v/pypwdft?color=green
+   :target: https://pypi.org/project/pypwdft/
+.. image:: https://github.com/ifilot/pypwdft/actions/workflows/build_pypi.yml/badge.svg
+   :target: https://github.com/ifilot/pypwdft/actions/workflows/build_pypi.yml
+.. image:: https://github.com/ifilot/pypwdft/actions/workflows/build_conda.yml/badge.svg
+   :target: https://github.com/ifilot/pypwdft/actions/workflows/build_conda.yml
 .. image:: https://img.shields.io/badge/License-GPLv3-blue.svg
    :target: https://www.gnu.org/licenses/gpl-3.0
 
@@ -17,6 +25,10 @@ Features and scope
 * There are **no** pseudo-potentials, nor any :math:`\vec{k}`-point sampling outside of the
   :math:`\Gamma`-point.
 * Lowest Kohn-Sham states are found using the Arnoldi iterative procedure.
+* Slater exchange functional
+* Vosko-Wilk-Nusair correlation functional (VWN5)
+* Dualism: the same basis set is used to describe both the molecular orbitals
+  as well as the electron density.
 * A :class:`pypwdft.SystemBuilder` class is used for quick generation of example
   structures.
 * The self-consistent field procedure allows for verbose (detailed output)
