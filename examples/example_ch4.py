@@ -38,7 +38,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 def main():
     # create cubic periodic system with lattice size of 10 Bohr units
-    npts = 16   # number of grid points
+    npts = 32   # number of grid points
     sz = 10
     
     # construct CH4 molecule system via SystemBuilder
@@ -62,28 +62,28 @@ def main():
         field = np.real(res['orbc_rs'][i][npts//2, :, :])
         maxval = max(np.max(np.abs(field)), 0.1)
         m[0][i] = im[0,i].imshow(field, origin='lower',
-                   interpolation='bicubic', extent=extent, cmap='PRGn',
+                   interpolation='bicubic', extent=extent, cmap='PiYG',
                    vmin=-maxval, vmax=maxval)
-        im[0,i].set_title(r'MO($\mathbb{R}$)%i / E=%6.4f Ht' % (i+1, orbe[i]))
+        im[0,i].set_title(r'$\mathbb{R}\;[\psi_{%i}]$' % (i+1))
         
         # visualize the imaginary part of the wave function
         field = np.imag(res['orbc_rs'][i][npts//2, :, :])
         maxval = max(np.max(np.abs(field)), 0.001)
         m[1][i] = im[1,i].imshow(field, origin='lower',
-                   interpolation='bicubic', extent=extent, cmap='PRGn',
+                   interpolation='bicubic', extent=extent, cmap='PiYG',
                    vmin=-maxval, vmax=maxval)
-        im[1,i].set_title(r'MO($\mathbb{I}$)%i / E=%6.4f Ht' % (i+1, orbe[i]))
+        im[1,i].set_title(r'$\mathbb{I}\;[\psi_{%i}]$' % (i+1))
         
         # visualize the electron density
         m[2][i] = im[2,i].imshow(np.real(res['orbc_rs'][i][npts//2, :, :].conj() * 
                                res['orbc_rs'][i][npts//2, :, :]), 
                        origin='lower', interpolation='bicubic', extent=extent)
-        im[2,i].set_title(r'MO($\rho$)%i / E=%6.4f Ht' % (i+1, orbe[i]))
+        im[2,i].set_title(r'$\rho_{%i}$' % (i+1))
         
     for j in range(0,3):
         for i in range(0,5):
-            im[j,i].set_xlabel('$x$-position [$\AA$]')
-            im[j,i].set_ylabel('$y$-position [$\AA$]')
+            im[j,i].set_xlabel('$x$-position [a.u.]')
+            im[j,i].set_ylabel('$y$-position [a.u.]')
             
             divider = make_axes_locatable(im[j,i])
             cax = divider.append_axes('right', size='5%', pad=0.05)
