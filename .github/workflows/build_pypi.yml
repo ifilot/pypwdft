@@ -1,0 +1,91 @@
+name: PyPI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - master
+      - develop
+    tags:
+      - "v**"
+  release:
+    types:
+      - published
+
+jobs:
+  check-version-strings:
+    name: Check version strings
+    runs-on: ubuntu-latest
+    container: python:3.11-slim-bullseye
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          pip install pyyaml
+      - name: Test versions
+        run: |
+          python versiontest.py
+
+  build-pip:
+    name: Build pip
+    needs: [check-version-strings]
+    runs-on: ubuntu-latest
+    container: python:3.11-slim-bullseye
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dependencies
+        run: |
+          pip install virtualenv
+          virtualenv venv
+          . venv/bin/activate
+          pip install build
+      - name: Build WHL
+        run: |
+          . venv/bin/activate
+          python -m build
+      - uses: actions/upload-artifact@v3
+        with:
+          path: ./dist/*.whl
+          name: whl
+  
+  test-pip:
+    name: Perform unit testing
+    needs: [build-pip]
+    runs-on: ubuntu-latest
+    container: python:3.11-slim-bullseye
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v3
+        with:
+          name: whl
+          path: dist
+      - name: Install PyPWDFT
+        run: |
+          pip install virtualenv
+          virtualenv venv
+          . venv/bin/activate
+          pip install build pytest dist/*.whl
+      - name: Perform unit tests
+        run: |
+          . venv/bin/activate
+          python -m pytest tests/*.py --verbose
+  
+  upload_pypi:
+    needs: [build-pip, test-pip]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: whl
+          path: dist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

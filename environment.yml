@@ -1,0 +1,7 @@
+name: pypwdft
+dependencies:
+  - numpy
+  - scipy
+  - conda-build
+  - conda-verify
+  - anaconda-client

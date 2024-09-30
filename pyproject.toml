@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pypwdft"
+version = "0.1.0"
+authors = [
+  { name="Ivo Filot", email="i.a.w.filot@tue.nl" }
+]
+maintainers = [
+    { name="Ivo Filot", email="i.a.w.filot@tue.nl" },
+]
+description = "pypwdft"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "GPL-3.0-or-later"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "scipy",
+    "numpy",
+    "mendeleev",
+    "pyfftw",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pypwdft*"]
+
+[tool.conda.environment]
+name = "demo"
+channels = [
+    "ifilot",
+    "conda-forge",
+]
+
+[project.urls]
+"Homepage" = "https://www.github.com/ifilot/pypwdft"
+"Bug Tracker" = "https://www.github.com/ifilot/pypwdft/issues"

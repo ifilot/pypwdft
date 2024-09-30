@@ -1,0 +1,80 @@
+name: Conda
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - master
+      - develop
+    tags:
+      - "v**"
+  release:
+    types:
+      - published
+
+jobs:
+  check-version-strings:
+    runs-on: ubuntu-latest
+    container: python:3.11-slim-bullseye
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+      - name: Install dependencies
+        run: |
+          pip install pyyaml
+      - name: Test versions
+        run: |
+          python versiontest.py
+
+  build-anaconda:
+    needs: check-version-strings
+    runs-on: ubuntu-latest
+    container: continuumio/miniconda3:23.10.0-1
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+      - name: Build
+        run: |
+          rm pyproject.toml
+          conda install conda-build
+          conda install -c conda-forge tqdm mendeleev pyfftw pytest
+          conda build . --output-folder conda-bld/
+      - name: Archive packages
+        uses: actions/upload-artifact@v3
+        with:
+          name: anaconda-packages
+          path: conda-bld/noarch/*
+
+  deploy-anaconda:
+    name: Publish Anaconda / Windows
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-anaconda
+    runs-on: ubuntu-latest
+    environment:
+      name: anaconda
+      url: https://anaconda.org/ifilot/pypwdft
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+      - name: Set-up miniconda
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          activate-environment: test
+          environment-file: environment.yml
+          python-version: 3.8
+          auto-activate-base: false
+      - name: Retrieve packages
+        uses: actions/download-artifact@v3
+        with:
+          name: anaconda-packages
+          path: packages
+      - name: publish-to-conda
+        shell: bash -l {0}
+        env:
+          INPUT_ANACONDATOKEN: ${{ secrets.ANACONDA_TOKEN }}
+        run: |
+          export ANACONDA_API_TOKEN=$INPUT_ANACONDATOKEN
+          anaconda upload packages/*.tar.bz2
