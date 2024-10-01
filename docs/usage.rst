@@ -146,33 +146,7 @@ Upon execution of this code, the following output is written to the console
     001 | Etot =  25.72188838 Ht | eps = 2.5722e+01 | dt = 0.5023 s
     002 | Etot =  -3.73540233 Ht | eps = 2.9457e+01 | dt = 0.5098 s
     003 | Etot = -21.73526459 Ht | eps = 1.8000e+01 | dt = 0.5807 s
-    004 | Etot = -29.42671403 Ht | eps = 7.6914e+00 | dt = 0.7262 s
-    005 | Etot = -32.91894875 Ht | eps = 3.4922e+00 | dt = 0.8088 s
-    006 | Etot = -34.79324803 Ht | eps = 1.8743e+00 | dt = 0.8830 s
-    007 | Etot = -35.89028706 Ht | eps = 1.0970e+00 | dt = 0.9239 s
-    008 | Etot = -36.56316890 Ht | eps = 6.7288e-01 | dt = 0.9665 s
-    009 | Etot = -36.98653043 Ht | eps = 4.2336e-01 | dt = 1.0637 s
-    010 | Etot = -37.25642182 Ht | eps = 2.6989e-01 | dt = 0.9757 s
-    011 | Etot = -37.42963747 Ht | eps = 1.7322e-01 | dt = 0.8910 s
-    012 | Etot = -37.54120394 Ht | eps = 1.1157e-01 | dt = 0.9177 s
-    013 | Etot = -37.61320317 Ht | eps = 7.1999e-02 | dt = 0.8708 s
-    014 | Etot = -37.65971654 Ht | eps = 4.6513e-02 | dt = 0.9530 s
-    015 | Etot = -37.68978030 Ht | eps = 3.0064e-02 | dt = 0.9666 s
-    016 | Etot = -37.70921444 Ht | eps = 1.9434e-02 | dt = 1.0423 s
-    017 | Etot = -37.72177570 Ht | eps = 1.2561e-02 | dt = 1.0124 s
-    018 | Etot = -37.72989204 Ht | eps = 8.1163e-03 | dt = 0.9978 s
-    019 | Etot = -37.73513379 Ht | eps = 5.2417e-03 | dt = 1.1720 s
-    020 | Etot = -37.73851690 Ht | eps = 3.3831e-03 | dt = 1.2111 s
-    021 | Etot = -37.74069871 Ht | eps = 2.1818e-03 | dt = 1.5268 s
-    022 | Etot = -37.74210447 Ht | eps = 1.4058e-03 | dt = 1.0254 s
-    023 | Etot = -37.74300923 Ht | eps = 9.0476e-04 | dt = 1.0217 s
-    024 | Etot = -37.74359080 Ht | eps = 5.8157e-04 | dt = 1.0133 s
-    025 | Etot = -37.74396409 Ht | eps = 3.7329e-04 | dt = 1.3798 s
-    026 | Etot = -37.74420328 Ht | eps = 2.3920e-04 | dt = 1.2190 s
-    027 | Etot = -37.74435626 Ht | eps = 1.5298e-04 | dt = 1.2910 s
-    028 | Etot = -37.74445388 Ht | eps = 9.7624e-05 | dt = 1.0146 s
-    029 | Etot = -37.74451603 Ht | eps = 6.2144e-05 | dt = 1.0786 s
-    030 | Etot = -37.74455548 Ht | eps = 3.9447e-05 | dt = 0.8716 s
+    ...
     031 | Etot = -37.74458043 Ht | eps = 2.4958e-05 | dt = 0.9166 s
     032 | Etot = -37.74459617 Ht | eps = 1.5732e-05 | dt = 1.0046 s
     033 | Etot = -37.74460604 Ht | eps = 9.8741e-06 | dt = 1.0156 s
@@ -309,10 +283,17 @@ Alternative to two-dimensional projections, one can also create isosurfaces. For
 this, we will use the external module `PyTessel
 <https://pytessel.imc-tue.nl/>`_. For isosurfaces, a relatively large number of
 sampling points for the scalar fields are required. However, this comes at the
-expense of computational time and for this reason, we will perform the
-electronic structure calculation initially using only 32 sampling points per
-Cartesian direction and follow up using quintic interpolation to "upsample" the
-scalar fields. An example of this process is shown in the image below.
+expense of computational time. To tackle this, we can use upsampling procedures.
+Here, we show two such upsampling methods, corresponding to quintic
+interpolation and frequency-domain upsampling.
+
+Quintic interpolation
+^^^^^^^^^^^^^^^^^^^^^
+
+we will perform the electronic structure calculation initially using only 32
+sampling points per Cartesian direction and follow up using quintic
+interpolation to "upsample" the scalar fields. An example of this process is
+shown in the image below.
 
 .. code::
 
@@ -374,3 +355,73 @@ In the image below, the isosurfaces corresponding to the real part of the scalar
 field for the 3σ, 4σ and 1π orbitals are visualized.
 
 .. image:: _static/img/orbs_co_isosurfaces.png
+
+Frequency domain upsampling
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. code::
+
+    import numpy as np
+    from pytessel import PyTessel
+    from scipy.interpolate import RegularGridInterpolator
+    from pypwdft import PyPWDFT, SystemBuilder, PeriodicSystem
+
+    def main():
+        # create cubic periodic system with lattice size of 10 Bohr units
+        npts = 32       # number of grid points
+        sz = 10
+
+        # construct CO molecule system via SystemBuilder
+        s = SystemBuilder().from_name('CO', sz=sz, npts=npts)
+
+        # construct calculator object
+        calculator = PyPWDFT(s)
+
+        # perform self-consistent field procedure and store results in res object
+        res = calculator.scf(tol=1e-1, nsol=9, verbose=True)
+
+        # generate PyTessel object
+        pytessel = PyTessel()
+
+        for i in range(2,9):
+            print('Building isosurfaces: %02i' % (i+1))
+            scalarfield = upsample_grid(res['orbc_fft'][i], s.get_omega())
+            unitcell = np.identity(3) * sz
+
+            # build positive real isosurface
+            vertices, normals, indices = pytessel.marching_cubes(scalarfield.real.flatten(), scalarfield.shape, unitcell.flatten(), 0.1)
+            pytessel.write_ply('MO_PR_%02i.ply' % (i+1), vertices, normals, indices)
+
+            # build negative real isosurface
+            vertices, normals, indices = pytessel.marching_cubes(scalarfield.real.flatten(), scalarfield.shape, unitcell.flatten(), -0.1)
+            pytessel.write_ply('MO_NR_%02i.ply' % (i+1), vertices, normals, indices)
+
+            # build positive imaginary isosurface
+            vertices, normals, indices = pytessel.marching_cubes(scalarfield.imag.flatten(), scalarfield.shape, unitcell.flatten(), 0.1)
+            pytessel.write_ply('MO_PI_%02i.ply' % (i+1), vertices, normals, indices)
+
+            # build negative imaginary isosurface
+            vertices, normals, indices = pytessel.marching_cubes(scalarfield.imag.flatten(), scalarfield.shape, unitcell.flatten(), -0.1)
+            pytessel.write_ply('MO_NI_%02i.ply' % (i+1), vertices, normals, indices)
+
+    def upsample_grid(scalarfield_fft, Omega, upsample=4):
+        Nx, Ny, Nz = scalarfield_fft.shape
+        Nx_up = Nx * upsample
+        Ny_up = Nx * upsample
+        Nz_up = Nx * upsample
+        
+        # shift the frequencies
+        fft = np.fft.fftshift(scalarfield_fft)
+        
+        # perform padding
+        fft_upsampled = np.pad(fft, [((Nz_up-Nz)//2,),
+                                    ((Ny_up-Ny)//2,),
+                                    ((Nx_up-Nx)//2,)], 'constant')
+        
+        # shift back
+        fft_hires = np.fft.ifftshift(fft_upsampled)
+        
+        return np.fft.ifftn(fft_hires) * np.prod([Nx_up, Ny_up, Nz_up]) / np.sqrt(Omega)
+
+    if __name__ == '__main__':
+        main()
