@@ -290,7 +290,7 @@ interpolation and frequency-domain upsampling.
 Quintic interpolation
 ^^^^^^^^^^^^^^^^^^^^^
 
-we will perform the electronic structure calculation initially using only 32
+We will perform the electronic structure calculation initially using only 32
 sampling points per Cartesian direction and follow up using quintic
 interpolation to "upsample" the scalar fields. An example of this process is
 shown in the image below.
@@ -359,49 +359,53 @@ field for the 3σ, 4σ and 1π orbitals are visualized.
 Frequency domain upsampling
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+In the code below, an example for frequency scale upsampling is shown.
+
 .. code::
 
     import numpy as np
     from pytessel import PyTessel
-    from scipy.interpolate import RegularGridInterpolator
-    from pypwdft import PyPWDFT, SystemBuilder, PeriodicSystem
+    from pypwdft import PyPWDFT, SystemBuilder
 
     def main():
         # create cubic periodic system with lattice size of 10 Bohr units
         npts = 32       # number of grid points
         sz = 10
-
+        
         # construct CO molecule system via SystemBuilder
-        s = SystemBuilder().from_name('CO', sz=sz, npts=npts)
-
+        s = SystemBuilder().from_name('CH4', sz=sz, npts=npts)
+            
         # construct calculator object
         calculator = PyPWDFT(s)
-
+        
         # perform self-consistent field procedure and store results in res object
-        res = calculator.scf(tol=1e-1, nsol=9, verbose=True)
-
+        res = calculator.scf(tol=1e-5, verbose=True)
+        
+        # print molecular orbital energies
+        print(res['orbe'])
+        
         # generate PyTessel object
         pytessel = PyTessel()
-
-        for i in range(2,9):
+        
+        for i in range(5):
             print('Building isosurfaces: %02i' % (i+1))
-            scalarfield = upsample_grid(res['orbc_fft'][i], s.get_omega())
+            scalarfield = upsample_grid(res['orbc_fft'][i], sz**3, 4)
             unitcell = np.identity(3) * sz
-
+            
             # build positive real isosurface
-            vertices, normals, indices = pytessel.marching_cubes(scalarfield.real.flatten(), scalarfield.shape, unitcell.flatten(), 0.1)
+            vertices, normals, indices = pytessel.marching_cubes(scalarfield.real.flatten(), scalarfield.shape, unitcell.flatten(), 0.03)
             pytessel.write_ply('MO_PR_%02i.ply' % (i+1), vertices, normals, indices)
-
+            
             # build negative real isosurface
-            vertices, normals, indices = pytessel.marching_cubes(scalarfield.real.flatten(), scalarfield.shape, unitcell.flatten(), -0.1)
+            vertices, normals, indices = pytessel.marching_cubes(scalarfield.real.flatten(), scalarfield.shape, unitcell.flatten(), -0.03)
             pytessel.write_ply('MO_NR_%02i.ply' % (i+1), vertices, normals, indices)
-
+            
             # build positive imaginary isosurface
-            vertices, normals, indices = pytessel.marching_cubes(scalarfield.imag.flatten(), scalarfield.shape, unitcell.flatten(), 0.1)
+            vertices, normals, indices = pytessel.marching_cubes(scalarfield.imag.flatten(), scalarfield.shape, unitcell.flatten(), 0.03)
             pytessel.write_ply('MO_PI_%02i.ply' % (i+1), vertices, normals, indices)
-
+            
             # build negative imaginary isosurface
-            vertices, normals, indices = pytessel.marching_cubes(scalarfield.imag.flatten(), scalarfield.shape, unitcell.flatten(), -0.1)
+            vertices, normals, indices = pytessel.marching_cubes(scalarfield.imag.flatten(), scalarfield.shape, unitcell.flatten(), -0.03)
             pytessel.write_ply('MO_NI_%02i.ply' % (i+1), vertices, normals, indices)
 
     def upsample_grid(scalarfield_fft, Omega, upsample=4):
@@ -409,19 +413,29 @@ Frequency domain upsampling
         Nx_up = Nx * upsample
         Ny_up = Nx * upsample
         Nz_up = Nx * upsample
-        
+
         # shift the frequencies
         fft = np.fft.fftshift(scalarfield_fft)
-        
+
         # perform padding
         fft_upsampled = np.pad(fft, [((Nz_up-Nz)//2,),
                                     ((Ny_up-Ny)//2,),
                                     ((Nx_up-Nx)//2,)], 'constant')
-        
+
         # shift back
         fft_hires = np.fft.ifftshift(fft_upsampled)
-        
+
         return np.fft.ifftn(fft_hires) * np.prod([Nx_up, Ny_up, Nz_up]) / np.sqrt(Omega)
 
     if __name__ == '__main__':
         main()
+
+Using the above scripts, the molecular orbitals as shown in the image below are
+found. Here, an isovalue of 0.03 was used. Since the molecular orbitals are
+complex-valued, both the real-part (orange-blue) as well as the the imaginary
+part (purple-green) is visualized provided that the imaginary part has a
+significant contribution. Though it might not look to be the case based on the
+shape of the orbitals, if one runs the above script, it can be verified that the
+latter three orbitals have equal orbital energies.
+
+.. image:: _static/img/orbs_ch4_isosurfaces.png
