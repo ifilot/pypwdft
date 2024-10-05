@@ -27,7 +27,7 @@
 import os
 import numpy as np
 from pytessel import PyTessel
-from pypwdft import PyPWDFT, SystemBuilder
+from pypwdft import PyPWDFT, SystemBuilder, PeriodicSystem
 import pickle
 
 def main():
@@ -58,14 +58,26 @@ def main():
     # generate PyTessel object
     pytessel = PyTessel()
     
+    # calculate overlap matrix prior to transformation
     S = calculate_overlap_matrix(res['orbc_rs'], sz, npts)
     print(S)
     
+    # calculate kinetic energies prior to transformation
+    for i in range(5):
+        print(calculate_kinetic_energy(res['orbc_fft'][i], sz, npts).real)
+    
+    # perform transformation
     for i in range(5):
         res['orbc_rs'][i] = np.sign(res['orbc_rs'][i].real)*np.abs(res['orbc_rs'][i])
         
+    # calculate overlap matrix after transformation
     S = calculate_overlap_matrix(res['orbc_rs'], sz, npts)
     print(S)
+    
+    # calculate kinetic energies after transformation
+    Ct = np.sqrt(sz**3) / npts**3
+    for i in range(5):
+        print(calculate_kinetic_energy(np.fft.fftn(res['orbc_rs'][i]) * Ct, sz, npts).real)
     
     for i in range(5):
         print('Building isosurfaces: %02i' % (i+1))
@@ -119,6 +131,15 @@ def calculate_overlap_matrix(orbc, sz, npts):
             S[i,j] = (np.sum(orbc[i].conjugate() * orbc[j]) * dV).real
             
     return S
+
+def calculate_kinetic_energy(orbc_fft, sz, npts):
+    """
+    Calculate the kinetic energy of a molecular orbital as represented by a
+    set of plane-wave coefficients
+    """
+    s = PeriodicSystem(sz=sz, npts=npts)
+    
+    return 0.5 * np.einsum('ijk,ijk,ijk', orbc_fft.conjugate(), s.get_pw_k2(), orbc_fft)
 
 if __name__ == '__main__':
     main()
