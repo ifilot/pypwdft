@@ -43,7 +43,7 @@ jobs:
           conda install -c conda-forge tqdm mendeleev pyfftw pytest
           conda build . --output-folder conda-bld/
       - name: Archive packages
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: anaconda-packages
           path: conda-bld/noarch/*
@@ -67,7 +67,7 @@ jobs:
           python-version: 3.8
           auto-activate-base: false
       - name: Retrieve packages
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: anaconda-packages
           path: packages
