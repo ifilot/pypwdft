@@ -77,4 +77,4 @@ jobs:
           INPUT_ANACONDATOKEN: ${{ secrets.ANACONDA_TOKEN }}
         run: |
           export ANACONDA_API_TOKEN=$INPUT_ANACONDATOKEN
-          anaconda upload packages/*.tar.bz2
+          anaconda upload packages/*.conda
