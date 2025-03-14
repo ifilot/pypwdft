@@ -147,7 +147,7 @@ number of grid points per Cartesian direction is shown.
   `SimpleDFT` uses a steepest descent method. Furthermore, `PyPWDFT` is built
   upon the rather elegant alternative 
   [algebraic formulation of Thomas Arias](https://arxiv.org/abs/cond-mat/9909130).
-* [PyDFT](https://gitlab.tue.nl/ifilot/pydft) is a localized orbital DFT code
+* [PyDFT](https://github.com/ifilot/pydft) is a localized orbital DFT code
   written in Python.
-* [PyQInt](https://pyqint.imc-tue.nl/) is a Hartree-Fock based electronic
+* [PyQInt](https://github.com/ifilot/pyqint) is a Hartree-Fock based electronic
   structure code, also written in Python.
