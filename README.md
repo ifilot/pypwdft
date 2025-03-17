@@ -8,6 +8,12 @@
 ## Purpose
 Plane wave DFT electronic solver for educational purposes.
 
+> [!IMPORTANT]  
+> It has come to my attention that my code shares the same name as the one presented in the recent publication
+> by [Yang et al](https://pubs.acs.org/doi/10.1021/acs.jctc.4c01605). I would like to clarify that my code was developed
+> entirely independently and has **no affiliation** with this publication. Moreover, my code predates the submission
+> of the paper by approximately one month and the publication itself by about six months.
+
 ## Properties
 
 * Plane wave basis set
