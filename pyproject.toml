@@ -26,6 +26,12 @@ dependencies = [
     "pyfftw",
 ]
 
+[project.optional-dependencies]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme",
+]
+
 [tool.setuptools]
 include-package-data = true
 
