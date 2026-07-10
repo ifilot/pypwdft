@@ -11,6 +11,21 @@ from pypwdft import PeriodicSystem, PyPWDFT
 
 class TestPeriodicUnitCell(unittest.TestCase):
 
+    def test_odd_electron_system_is_rejected(self):
+        s = PeriodicSystem(10, 8)
+        s.add_atom(5, 5, 5, 1)
+
+        with self.assertRaisesRegex(ValueError, 'Odd-electron'):
+            PyPWDFT(s, fft='numpy').scf()
+
+    def test_scf_iteration_limit(self):
+        s = PeriodicSystem(10, 8, ecut=1)
+        s.add_atom(4.3, 5, 5, 1)
+        s.add_atom(5.7, 5, 5, 1)
+
+        with self.assertRaisesRegex(RuntimeError, 'did not converge'):
+            PyPWDFT(s, fft='numpy').scf(maxiter=1)
+
     def test_pwdft_ch4(self):
         """
         Test calculation of CH4

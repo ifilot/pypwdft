@@ -59,7 +59,7 @@ electronic step in the SCF procedure is printed.
 
 ```python
 # import the required libraries for the test
-from pypwdft import PyPWDFT, PeriodicSystem, MoleculeBuilder
+from pypwdft import PyPWDFT, PeriodicSystem, SystemBuilder
 import numpy as np
 
 def main():

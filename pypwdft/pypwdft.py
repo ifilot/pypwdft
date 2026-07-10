@@ -38,13 +38,18 @@ class PyPWDFT:
         self.__s = sys
         self.__fft = fft
         
-    def scf(self, tol:float=1e-5, nsol:int=None, verbose:bool=False) -> dict:
+    def scf(self, tol:float=1e-5, nsol:int=None, verbose:bool=False,
+            density_tol:float=None, maxiter:int=100) -> dict:
         """Perform self-consistent field procedure
 
         Args:
             tol (float, optional): electronic convergence criterion. Defaults to 1e-5.
             nsol (int, optional): number of solutions to find. Defaults to None.
             verbose (bool, optional): whether verbose output should be given. Defaults to False.
+            density_tol (float, optional): RMS density-residual convergence
+                criterion. Defaults to ``tol``.
+            maxiter (int, optional): maximum number of SCF iterations.
+                Defaults to 100.
 
         Returns:
             dict: Dictionary containing system results
@@ -53,8 +58,26 @@ class PyPWDFT:
         tstart = timeit.default_timer()     # keep track of overall time
         npts = self.__s.get_npts()          # #gridpoints per Cart. dir.
         nelec = self.__s.get_nelec()        # number of electrons
+        if nelec != int(nelec):
+            raise ValueError('The number of electrons must be an integer.')
+        nelec = int(nelec)
+        if nelec % 2:
+            raise ValueError(
+                'Odd-electron systems are not supported by the current '
+                'closed-shell implementation.'
+            )
+        if nelec < 2:
+            raise ValueError('At least two electrons are required.')
+        if density_tol is None:
+            density_tol = tol
+        if tol <= 0 or density_tol <= 0:
+            raise ValueError('Convergence tolerances must be positive.')
+        if maxiter < 1:
+            raise ValueError('maxiter must be at least one.')
         nocc = nelec // 2                   # number of occupied orbitals
         k2 = self.__s.get_pw_k2()           # PW vector lengths
+        pw_mask = self.__s.get_pw_mask()    # selected orbital plane waves
+        npw = self.__s.get_n_plane_waves()  # size of the orbital basis
         Omega = self.__s.get_omega()        # unit cell size
         Ct = Ct = np.sqrt(Omega) / npts**3  # transformation constant
         dV = dV = Omega / npts**3           # integration constant in real space
@@ -66,9 +89,15 @@ class PyPWDFT:
             if nsol < nocc:
                 nsol = nocc
         
-        # contruct initial search vector, this vector is kept consistent for
+        if nsol >= npw:
+            raise ValueError(
+                f'nsol ({nsol}) must be smaller than the number of plane '
+                f'waves ({npw}).'
+            )
+
+        # construct initial search vector, this vector is kept consistent for
         # reproduction purposes
-        v0 = np.eye(npts**3,1)
+        v0 = np.eye(npw, 1)
         
         # container for the Kohn-Sham states in reciprocal space
         mo_fft = np.zeros((nsol, npts, npts, npts), dtype=np.complex128)
@@ -76,8 +105,9 @@ class PyPWDFT:
         # containers for the Kohn-Sham states in real space
         mos = np.zeros((nsol, npts, npts, npts), dtype=np.complex128)
         
-        # difference in energy between two consecutive iterative steps
-        diff = 1e8
+        # differences between consecutive SCF steps
+        diff = np.inf
+        density_residual = np.inf
         
         # total electronic energy
         Etot = 0
@@ -96,65 +126,60 @@ class PyPWDFT:
         # electrons in the unit cell
         edens = self.__build_initial_edens()
         
-        # calculate initial Hartree potential
-        harpot = self.__calculate_hartree_potential(edens, k2)
-        
-        # calculate exchange-correlation energy functional and potential
-        fx, vx = self.__lda_x(edens)
-        fc, vc = self.__lda_c_vwn(edens)
-        fxc = fx + fc
-        vxc = vx + vc
-              
-        # loop until electronic convergence is reached
-        while diff > tol:
-            # increment iteration counter
-            it += 1         
-            
+        # loop until both energy and density are converged
+        converged = False
+        for it in range(1, maxiter + 1):
             # store old total electronic energy
-            Etotold = Etot  
+            Etotold = Etot
 
             # keep track of time            
             start = timeit.default_timer()
             
-            # calculate total potential
+            # Calculate the input effective potential.
+            harpot = self.__calculate_hartree_potential(edens, k2)
+            fx, vx = self.__lda_x(edens)
+            fc, vc = self.__lda_c_vwn(edens)
+            vxc = vx + vc
             vtot = np.real(vpot + harpot + vxc)
             
             # construct a Linear Operation class to calculate a Hamiltonian
             # element
-            A = LinOpH(vtot, npts, k2, fft=self.__fft)
+            A = LinOpH(vtot, npts, k2, fft=self.__fft, pw_mask=pw_mask)
             e,v = scipy.sparse.linalg.eigsh(A, nsol, which='SA', v0=v0)
+
+            # Sort before selecting occupied states; eigensolver ordering
+            # should not be relied upon for the density construction.
+            indx = e.argsort()
+            e = e[indx]
+            v = v[:, indx]
             
             # store new eigenvectors (Kohn-Sham states)
             for i in range(nsol):
-                mo_fft[i,:,:,:] = v[:,i].reshape((npts,npts,npts))
+                mo_fft[i].fill(0)
+                mo_fft[i].flat[pw_mask.ravel()] = v[:,i]
                 mos[i] = np.fft.ifftn(mo_fft[i,:,:,:]) / Ct
-        
+
+            output_density = np.real(np.einsum(
+                'ijkl,ijkl->jkl', mos[:nocc].conj(), mos[:nocc]
+            )) * 2.0
+            density_residual = np.sqrt(np.mean((output_density - edens)**2))
+
             # set mixing factor to slowly introduce the new density to the
             # old electron density
             alpha = 0.3
-            
-            # calculate new electron density
-            edens = (1.0 - alpha) * edens + \
-                    alpha * np.einsum('ijkl,ijkl->jkl', 
-                                      mos[:nocc].conj(), 
-                                      mos[:nocc]) * 2.0
 
-            # calculate new Hartree potential
-            harpot = self.__calculate_hartree_potential(edens, k2)
-            
-            # calculate new exchange potential
-            fx, vx = self.__lda_x(edens)
-            fc, vc = self.__lda_c_vwn(edens)
+            # Evaluate all density-dependent energy terms using the same
+            # output density as the orbitals and kinetic energy.
+            harpot = self.__calculate_hartree_potential(output_density, k2)
+            fx, vx = self.__lda_x(output_density)
+            fc, vc = self.__lda_c_vwn(output_density)
             fxc = fx + fc
-            vxc = vx + vc
-            
-            # calculate new energy
             
             # calculate repulsion between the electrons
-            Erep = np.real(0.5 * np.einsum('ijk,ijk', harpot, edens) * dV)
+            Erep = np.real(0.5 * np.einsum('ijk,ijk', harpot, output_density) * dV)
             
             # calculate attraction between nuclei and electrons
-            Enuc = np.real(np.einsum('ijk,ijk', vpot, edens)) * dV
+            Enuc = np.real(np.einsum('ijk,ijk', vpot, output_density)) * dV
             
             # calculate kinetic energy (done in reciprocal space)
             Ekin = np.real(np.einsum('ijkl,ijkl,jkl', 
@@ -163,12 +188,12 @@ class PyPWDFT:
                            k2))
             
             # calculate exchange-correlation energy
-            Exc = np.real(np.einsum('ijk,ijk', fxc, edens)) * dV
+            Exc = np.real(np.einsum('ijk,ijk', fxc, output_density)) * dV
             
             # sum all terms to find total electronic energy
             Etot = Ekin + Enuc + Erep + Eewald + Exc
             
-            # calculate difference between old and new density
+            # calculate difference between consecutive output energies
             diff = np.abs(Etot - Etotold)
             
             # capture total calculation time
@@ -179,18 +204,59 @@ class PyPWDFT:
             
             # output results iteration update to user
             if verbose:
-                print('%03i | Etot = %12.8f Ht | eps = %6.4e | dt = %6.4f s' \
-                      % (it, Etot, diff, dt))
+                print('%03i | Etot = %12.8f Ht | dE = %6.4e | dn = %6.4e | dt = %6.4f s' \
+                      % (it, Etot, diff, density_residual, dt))
             
             # store lowest energy Kohn-Sham state for next iteratinon of the
             # algorithm
             v0 = v[:,0]
-            
-        # sort by eigenvalue in ascending order
+
+            if diff <= tol and density_residual <= density_tol:
+                converged = True
+                edens = output_density
+                break
+
+            edens = (1.0 - alpha) * edens + alpha * output_density
+
+        if not converged:
+            raise RuntimeError(
+                f'SCF did not converge in {maxiter} iterations '
+                f'(dE={diff:.3e}, dn={density_residual:.3e}).'
+            )
+
+        # Perform a final solve from the converged density.  This makes the
+        # returned orbitals, density, and every energy component belong to one
+        # consistent final output state rather than to a mixed density.
+        harpot = self.__calculate_hartree_potential(edens, k2)
+        fx, vx = self.__lda_x(edens)
+        fc, vc = self.__lda_c_vwn(edens)
+        vtot = np.real(vpot + harpot + vx + vc)
+        A = LinOpH(vtot, npts, k2, fft=self.__fft, pw_mask=pw_mask)
+        e, v = scipy.sparse.linalg.eigsh(A, nsol, which='SA', v0=v0)
         indx = e.argsort()
-        mo_fft = mo_fft[indx]
-        mos = mos[indx]
         e = e[indx]
+        v = v[:, indx]
+        for i in range(nsol):
+            mo_fft[i].fill(0)
+            mo_fft[i].flat[pw_mask.ravel()] = v[:, i]
+            mos[i] = np.fft.ifftn(mo_fft[i]) / Ct
+        final_density = np.real(np.einsum(
+            'ijkl,ijkl->jkl', mos[:nocc].conj(), mos[:nocc]
+        )) * 2.0
+        density_residual = np.sqrt(np.mean((final_density - edens)**2))
+        edens = final_density
+
+        harpot = self.__calculate_hartree_potential(edens, k2)
+        fx, _ = self.__lda_x(edens)
+        fc, _ = self.__lda_c_vwn(edens)
+        fxc = fx + fc
+        Erep = np.real(0.5 * np.einsum('ijk,ijk', harpot, edens) * dV)
+        Enuc = np.real(np.einsum('ijk,ijk', vpot, edens)) * dV
+        Ekin = np.real(np.einsum(
+            'ijkl,ijkl,jkl', mo_fft[:nocc], mo_fft[:nocc].conjugate(), k2
+        ))
+        Exc = np.real(np.einsum('ijk,ijk', fxc, edens)) * dV
+        Etot = Ekin + Enuc + Erep + Eewald + Exc
         
         # determine total computation time
         tstop = timeit.default_timer()
@@ -212,6 +278,12 @@ class PyPWDFT:
             'orbe': e,          # orbital energies
             'orbc_rs': mos,     # Kohn-Sham states in real space
             'ttime': ttime,     # total computation time
+            'iterations': it,
+            'energy_residual': diff,
+            'density_residual': density_residual,
+            'converged': converged,
+            'ecut': self.__s.get_ecut(),
+            'npw': npw,
         }
         
         return res
@@ -293,7 +365,8 @@ class LinOpH(LinearOperator):
     This class encapsulates the Linear Operator that functionally applies
     the Hamiltonian matrix to an input vector
     """
-    def __init__(self, nu_pot:np.ndarray, npts:int, k2:np.ndarray, fft:str='pyfftw'):
+    def __init__(self, nu_pot:np.ndarray, npts:int, k2:np.ndarray,
+                 fft:str='pyfftw', pw_mask:np.ndarray=None):
         """Build Linear Operator class to solve matrix-vector multiplication in Arnoldi method
 
         Args:
@@ -301,15 +374,22 @@ class LinOpH(LinearOperator):
             npts (int): number of sampling points per Cartesian direction
             k2 (np.ndarray): squared plane wave vector lengths
             fft (str, optional): which FFT algorithm to use. Defaults to 'pyfftw'.
+            pw_mask (np.ndarray, optional): mask selecting the spherical
+                orbital plane-wave basis. Defaults to all FFT coefficients.
 
         Raises:
             Exception: when unknown FFT algorithm is being requested.
         """
         self.nu_pot = nu_pot
         self.npts = int(npts)
-        self.k2 = k2.flatten()
-        self.shape = tuple([self.npts**3, self.npts**3])
-        self.dtype = np.dtype(np.complex128)
+        if pw_mask is None:
+            pw_mask = np.ones_like(k2, dtype=bool)
+        self.pw_mask = np.asarray(pw_mask, dtype=bool).flatten()
+        self.k2 = k2.flatten()[self.pw_mask]
+        super().__init__(
+            dtype=np.complex128,
+            shape=(len(self.k2), len(self.k2)),
+        )
         
         if fft == 'pyfftw':
             self.fft_in = pyfftw.empty_aligned(
@@ -345,14 +425,16 @@ class LinOpH(LinearOperator):
         Returns:
             np.ndarray: output result in reciprocal space
         """
-        # reshape the input (assumed to be flattened)
-        psi = v.reshape((self.npts, self.npts, self.npts))
+        # Embed active coefficients in the full FFT grid.
+        psi = np.zeros(self.npts**3, dtype=np.complex128)
+        psi[self.pw_mask] = v
+        psi = psi.reshape((self.npts, self.npts, self.npts))
         
         # kinetic term
         T = 0.5 * self.k2 * v
         
         # return solution vector
-        return T + self.__fft(psi).flatten()
+        return T + self.__fft(psi).flatten()[self.pw_mask]
     
     def _solve_npfft(self, psi:np.ndarray) -> np.ndarray:
         """Solve potential interaction using Numpy FFT

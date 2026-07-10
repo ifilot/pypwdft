@@ -76,5 +76,18 @@ class TestPeriodicUnitCell(unittest.TestCase):
         np.testing.assert_almost_equal(s.get_atom_positions()[-1],
                                        np.array([1.19575624, 8.80424376, 8.80424376]))
 
+    def test_spherical_plane_wave_cutoff(self):
+        s = PeriodicSystem(10, 16, ecut=5)
+
+        mask = s.get_pw_mask()
+        np.testing.assert_array_less(
+            0.5 * s.get_pw_k2()[mask], 5 + np.finfo(float).eps
+        )
+        self.assertEqual(s.get_n_plane_waves(), np.count_nonzero(mask))
+        self.assertLess(s.get_n_plane_waves(), s.get_npts()**3)
+
+        with self.assertRaises(ValueError):
+            PeriodicSystem(10, 16, ecut=20)
+
 if __name__ == '__main__':
     unittest.main()

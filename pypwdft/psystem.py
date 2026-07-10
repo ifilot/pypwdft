@@ -25,12 +25,14 @@ class PeriodicSystem:
     Class that encapsulates a cubic unitcell with periodic boundary conditions
     and which can host the nuclei and electrons
     """
-    def __init__(self, sz:float, npts:int):
+    def __init__(self, sz:float, npts:int, ecut:float=None):
         """Build a periodic system
 
         Args:
             sz (float): edge size of the cubic unit cell
             npts (int): number of sampling points per Cartesian direction
+            ecut (float, optional): spherical orbital plane-wave cutoff in
+                Hartree. When omitted, the legacy full FFT cube is used.
         """
         
         # size of the cube edges
@@ -47,6 +49,23 @@ class PeriodicSystem:
         
         # build FFT vectors and store these in the class
         self.__build_fft_vectors()
+
+        # Select the orbital plane-wave basis.  The FFT grid is also used for
+        # densities and local potentials, but only coefficients inside this
+        # spherical cutoff are variational degrees of freedom.
+        self.__ecut = ecut
+        self.__pw_mask = np.ones_like(self.__k2, dtype=bool)
+        if ecut is not None:
+            if ecut <= 0:
+                raise ValueError('ecut must be positive.')
+            gnyquist = np.pi * npts / sz
+            enyquist = 0.5 * gnyquist**2
+            if ecut >= enyquist:
+                raise ValueError(
+                    'ecut must be below the one-dimensional FFT Nyquist '
+                    f'energy ({enyquist:.6f} Ht).'
+                )
+            self.__pw_mask = 0.5 * self.__k2 <= ecut
         
         # create placeholders for atom positions and charges
         self.__atompos = np.zeros((0,3), dtype=np.float64)
@@ -153,6 +172,18 @@ class PeriodicSystem:
             np.ndarray: squared length of plane wave vectors
         """
         return self.__k2
+
+    def get_pw_mask(self) -> np.ndarray:
+        """Get the mask selecting orbital plane waves inside ``ecut``."""
+        return self.__pw_mask
+
+    def get_ecut(self):
+        """Get the orbital cutoff in Hartree, or ``None`` for the legacy basis."""
+        return self.__ecut
+
+    def get_n_plane_waves(self) -> int:
+        """Get the number of plane waves in the orbital basis."""
+        return int(np.count_nonzero(self.__pw_mask))
     
     def get_npts(self) -> int:
         """Get the number of sampling points per Cartesian direction

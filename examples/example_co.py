@@ -89,8 +89,8 @@ def main():
         
     for j in range(0,3):
         for i in range(0,nsol):
-            im[j,i].set_xlabel('$x$-position [$\AA$]')
-            im[j,i].set_ylabel('$y$-position [$\AA$]')
+            im[j,i].set_xlabel(r'$x$-position [$\AA$]')
+            im[j,i].set_ylabel(r'$y$-position [$\AA$]')
             
             divider = make_axes_locatable(im[j,i])
             cax = divider.append_axes('right', size='5%', pad=0.05)
