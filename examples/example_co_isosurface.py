@@ -34,15 +34,16 @@ from scipy.interpolate import RegularGridInterpolator
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # import the required libraries for the test
-from pypwdft import PyPWDFT, SystemBuilder, PeriodicSystem
+from pypwdft import PyPWDFT, SystemBuilder
 
 def main():
     # create cubic periodic system with lattice size of 10 Bohr units
-    npts = 32       # number of grid points
+    ecut = 5        # wavefunction cutoff in Hartree
     sz = 10
     
     # construct CO molecule system via SystemBuilder
-    s = SystemBuilder().from_name('CO', sz=sz, npts=npts)
+    s = SystemBuilder().from_name('CO', sz=sz, ecut=ecut)
+    npts = s.get_density_npts()
         
     # construct calculator object
     calculator = PyPWDFT(s)
@@ -75,10 +76,12 @@ def main():
         pytessel.write_ply('MO_NI_%02i.ply' % (i+1), vertices, normals, indices)
 
 def interpolate_grid(scalarfield, sz, npts, amp=2):
-    x = np.linspace(0, sz, npts)
+    x = np.linspace(0, sz, npts, endpoint=False)
     interp = RegularGridInterpolator((x,x,x), scalarfield, method='quintic')
-    s = PeriodicSystem(sz, npts * amp)
-    points = s.get_r()
+    target = npts * amp
+    axis = np.linspace(0, sz, target, endpoint=False)
+    z, y, x = np.meshgrid(axis, axis, axis, indexing='ij')
+    points = np.stack((x, y, z), axis=-1)
     
     return interp(points)
 

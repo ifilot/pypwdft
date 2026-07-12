@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from pypwdft import SystemBuilder, PyPWDFT, PeriodicSystem
+from pypwdft import SystemBuilder, PyPWDFT
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -11,8 +11,9 @@ import scipy
 
 def main():
     sz = 10
-    npts = 32
-    s = SystemBuilder().from_name('CH4', sz, npts)
+    ecut = 5
+    s = SystemBuilder().from_name('CH4', sz=sz, ecut=ecut)
+    npts = s.get_density_npts()
     
     if os.path.exists('ch4.pickle'):
         with open('ch4.pickle', 'rb') as f:
@@ -101,9 +102,12 @@ def calculate_kinetic_energy(orbc_fft, sz, npts):
     Calculate the kinetic energy of a molecular orbital as represented by a
     set of plane-wave coefficients
     """
-    s = PeriodicSystem(sz=sz, npts=npts)
-    
-    return 0.5 * np.einsum('ijk,ijk,ijk', orbc_fft.conjugate(), s.get_pw_k2(), orbc_fft)
+    k = np.fft.fftfreq(npts) * 2 * np.pi * npts / sz
+    kz, ky, kx = np.meshgrid(k, k, k, indexing='ij')
+    k2 = kx**2 + ky**2 + kz**2
+    return 0.5 * np.einsum(
+        'ijk,ijk,ijk', orbc_fft.conjugate(), k2, orbc_fft
+    )
 
 def optimize_real(psi):
     """

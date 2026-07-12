@@ -27,21 +27,22 @@
 import os
 import numpy as np
 from pytessel import PyTessel
-from pypwdft import PyPWDFT, SystemBuilder, PeriodicSystem
+from pypwdft import PyPWDFT, SystemBuilder
 import pickle
 
 def main():
     # create cubic periodic system with lattice size of 10 Bohr units
-    npts = 32       # number of grid points
+    ecut = 5        # wavefunction cutoff in Hartree
     sz = 10
+
+    s = SystemBuilder().from_name('CH4', sz=sz, ecut=ecut)
+    npts = s.get_density_npts()
     
     if os.path.exists('ch4.pickle'):
         with open('ch4.pickle', 'rb') as f:
             res = pickle.load(f)
     else:
         # construct CO molecule system via SystemBuilder
-        s = SystemBuilder().from_name('CH4', sz=sz, npts=npts)
-            
         # construct calculator object
         calculator = PyPWDFT(s)
         
@@ -137,9 +138,12 @@ def calculate_kinetic_energy(orbc_fft, sz, npts):
     Calculate the kinetic energy of a molecular orbital as represented by a
     set of plane-wave coefficients
     """
-    s = PeriodicSystem(sz=sz, npts=npts)
-    
-    return 0.5 * np.einsum('ijk,ijk,ijk', orbc_fft.conjugate(), s.get_pw_k2(), orbc_fft)
+    k = np.fft.fftfreq(npts) * 2 * np.pi * npts / sz
+    kz, ky, kx = np.meshgrid(k, k, k, indexing='ij')
+    k2 = kx**2 + ky**2 + kz**2
+    return 0.5 * np.einsum(
+        'ijk,ijk,ijk', orbc_fft.conjugate(), k2, orbc_fft
+    )
 
 if __name__ == '__main__':
     main()

@@ -1,1 +1,2 @@
 include pypwdft/molecules/*.xyz
+recursive-include pypwdft/psp *

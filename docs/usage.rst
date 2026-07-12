@@ -22,11 +22,11 @@ To build a system, one can run
     from pypwdft import SystemBuilder, PeriodicSystem
 
     # create cubic periodic system with lattice size of 10 Bohr units
-    npts = 16   # number of grid points
+    ecut = 5    # wavefunction cutoff in Hartree
     sz = 10
     
     # construct CH4 molecule system via SystemBuilder
-    s = SystemBuilder().from_name('CH4', sz=sz, npts=npts)
+    s = SystemBuilder().from_name('CH4', sz=sz, ecut=ecut)
 
 To view the unit cell matrix and the atomic coordinates, one can simply invoke
 
@@ -69,16 +69,17 @@ class:
 Manual
 ######
 
-Alternatively, one can also build a system by hand. First, define the unit cell
-and the number of sampling points per Cartesian direction.
+Alternatively, one can also build a system by hand. Define the unit cell and
+the wavefunction plane-wave cutoff. PyPWDFT derives an FFT-friendly density
+grid for a density cutoff of four times the wavefunction cutoff.
 
 .. code:: python
 
     from pypwdft import PeriodicSystem
 
-    npts = 32   # number of grid points
+    ecut = 5    # wavefunction cutoff in Hartree
     sz = 10     # edge size of cubic unit cell
-    s = PeriodicSystem(sz, npts)
+    s = PeriodicSystem(sz, ecut=ecut)
 
 Next, one can add atoms to the PeriodicSystem by means of the 
 :class:`pypwdft.PeriodicSystem.add_atom` method
@@ -127,11 +128,11 @@ an example is provided how to set-up a electronic structure calculation.
     from pypwdft import PyPWDFT, PeriodicSystem, SystemBuilder
 
     # create cubic periodic system with lattice size of 10 Bohr units
-    npts = 32   # number of grid points
+    ecut = 5    # wavefunction cutoff in Hartree
     sz = 10
     
     # construct CH4 molecule system via SystemBuilder
-    s = SystemBuilder().from_name('CH4', sz=sz, npts=npts)
+    s = SystemBuilder().from_name('CH4', sz=sz, ecut=ecut)
         
     # construct calculator object
     calculator = PyPWDFT(s)
@@ -168,6 +169,10 @@ dictionary. This dictionary contains the following entries:
 * :code:`orbe` : Molecular orbital energies
 * :code:`orbc_rs` : Real-space representation of the molecular orbitals
 * :code:`ttime` : Total computation time
+* :code:`ecut` : Wavefunction plane-wave cutoff
+* :code:`density_ecut` : Density cutoff
+* :code:`wavefunction_npts` : Derived standalone wavefunction-grid size
+* :code:`density_npts` : Derived density-grid size used for FFTs
 
 .. note::
 
@@ -216,11 +221,12 @@ script below.
 
     def main():
         # create cubic periodic system with lattice size of 10 Bohr units
-        npts = 32   # number of grid points
+        ecut = 5    # wavefunction cutoff in Hartree
         sz = 10
         
         # construct CH4 molecule system via SystemBuilder
-        s = SystemBuilder().from_name('CH4', sz=sz, npts=npts)
+        s = SystemBuilder().from_name('CH4', sz=sz, ecut=ecut)
+        npts = s.get_density_npts()
             
         # construct calculator object
         calculator = PyPWDFT(s)
@@ -290,10 +296,9 @@ interpolation and frequency-domain upsampling.
 Quintic interpolation
 ^^^^^^^^^^^^^^^^^^^^^
 
-We will perform the electronic structure calculation initially using only 32
-sampling points per Cartesian direction and follow up using quintic
-interpolation to "upsample" the scalar fields. An example of this process is
-shown in the image below.
+We will perform the electronic structure calculation on the automatically
+selected density grid and follow up using quintic interpolation to "upsample"
+the scalar fields. An example of this process is shown in the image below.
 
 .. code::
 
@@ -304,11 +309,12 @@ shown in the image below.
 
     def main():
         # create cubic periodic system with lattice size of 10 Bohr units
-        npts = 32       # number of grid points
+        ecut = 5        # wavefunction cutoff in Hartree
         sz = 10
         
         # construct CO molecule system via SystemBuilder
-        s = SystemBuilder().from_name('CO', sz=sz, npts=npts)
+        s = SystemBuilder().from_name('CO', sz=sz, ecut=ecut)
+        npts = s.get_density_npts()
             
         # construct calculator object
         calculator = PyPWDFT(s)
@@ -343,8 +349,10 @@ shown in the image below.
     def interpolate_grid(scalarfield, sz, npts, amp=2):
         x = np.linspace(0, sz, npts)
         interp = RegularGridInterpolator((x,x,x), scalarfield, method='quintic')
-        s = PeriodicSystem(sz, npts * amp)
-        points = s.get_r()
+        target = npts * amp
+        axis = np.linspace(0, sz, target, endpoint=False)
+        z, y, x = np.meshgrid(axis, axis, axis, indexing='ij')
+        points = np.stack((x, y, z), axis=-1)
         
         return interp(points)
 
@@ -369,11 +377,12 @@ In the code below, an example for frequency scale upsampling is shown.
 
     def main():
         # create cubic periodic system with lattice size of 10 Bohr units
-        npts = 32       # number of grid points
+        ecut = 5        # wavefunction cutoff in Hartree
         sz = 10
         
         # construct CO molecule system via SystemBuilder
-        s = SystemBuilder().from_name('CH4', sz=sz, npts=npts)
+        s = SystemBuilder().from_name('CH4', sz=sz, ecut=ecut)
+        npts = s.get_density_npts()
             
         # construct calculator object
         calculator = PyPWDFT(s)

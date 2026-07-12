@@ -34,9 +34,9 @@ import numpy as np
 
 def main():
     # create cubic periodic system with lattice size of 10 Bohr units
-    npts = 16       # number of grid points
+    ecut = 5        # wavefunction cutoff in Hartree
     sz = 10
-    s = PeriodicSystem(sz, npts)
+    s = PeriodicSystem(sz, ecut=ecut)
     
     # add helium atom to system
     atompos = np.array([[5.00000000, 5.00000000, 5.00000000]])

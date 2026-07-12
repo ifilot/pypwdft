@@ -16,9 +16,8 @@ class TestPeriodicUnitCell(unittest.TestCase):
         Test whether the PeriodicUnitCell class has correctly stored
         all relevant properties that describe the unit cell
         """
-        # create cubic periodic system with lattice size of 10 A and
-        # 32 grid points per cartesian direction
-        s = PeriodicSystem(10, 32)
+        # create a 10-bohr cubic system with a 5-Hartree cutoff
+        s = PeriodicSystem(10, ecut=5)
         
         # add methane molecule to system
         atompos = np.array([[5.00000000, 5.00000000, 5.00000000],
@@ -48,9 +47,7 @@ class TestPeriodicUnitCell(unittest.TestCase):
         np.testing.assert_almost_equal(s.get_pw_k2().shape, [npts, npts, npts])
 
     def test_translation(self):
-        # create cubic periodic system with lattice size of 10 A and
-        # 32 grid points per cartesian direction
-        s = PeriodicSystem(10, 32)
+        s = PeriodicSystem(10, ecut=5)
         
         # add methane molecule to system
         atompos = np.array([[5.00000000, 5.00000000, 5.00000000],
@@ -77,7 +74,7 @@ class TestPeriodicUnitCell(unittest.TestCase):
                                        np.array([1.19575624, 8.80424376, 8.80424376]))
 
     def test_spherical_plane_wave_cutoff(self):
-        s = PeriodicSystem(10, 16, ecut=5)
+        s = PeriodicSystem(10, ecut=5)
 
         mask = s.get_pw_mask()
         np.testing.assert_array_less(
@@ -85,9 +82,22 @@ class TestPeriodicUnitCell(unittest.TestCase):
         )
         self.assertEqual(s.get_n_plane_waves(), np.count_nonzero(mask))
         self.assertLess(s.get_n_plane_waves(), s.get_npts()**3)
+        self.assertEqual(s.get_density_ecut(), 20)
+        self.assertEqual(s.get_npts(), s.get_density_npts())
+        self.assertLess(s.get_wavefunction_npts(), s.get_density_npts())
+
+        finer = PeriodicSystem(10, ecut=5, density_ecut=30)
+        self.assertGreater(finer.get_density_npts(), s.get_density_npts())
+        self.assertEqual(finer.get_n_plane_waves(), s.get_n_plane_waves())
 
         with self.assertRaises(ValueError):
-            PeriodicSystem(10, 16, ecut=20)
+            PeriodicSystem(10, ecut=5, density_ecut=19)
+        with self.assertRaises(ValueError):
+            PeriodicSystem(10, ecut=0)
+        with self.assertRaises(TypeError):
+            PeriodicSystem(10)
+        with self.assertRaises(TypeError):
+            PeriodicSystem(10, 16)
 
 if __name__ == '__main__':
     unittest.main()

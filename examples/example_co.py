@@ -39,11 +39,12 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 def main():
     # create cubic periodic system with lattice size of 10 Bohr units
-    npts = 32       # number of grid points
+    ecut = 5        # wavefunction cutoff in Hartree
     sz = 10
     
     # construct CO molecule system via SystemBuilder
-    s = SystemBuilder().from_name('CO', sz=sz, npts=npts)
+    s = SystemBuilder().from_name('CO', sz=sz, ecut=ecut)
+    npts = s.get_density_npts()
         
     # construct calculator object
     calculator = PyPWDFT(s)

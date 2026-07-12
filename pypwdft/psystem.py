@@ -19,27 +19,43 @@
 
 import numpy as np
 import math
+from scipy.fft import next_fast_len
 
 class PeriodicSystem:
     """
     Class that encapsulates a cubic unitcell with periodic boundary conditions
     and which can host the nuclei and electrons
     """
-    def __init__(self, sz:float, npts:int, ecut:float=None):
+    def __init__(self, sz:float, *, ecut:float,
+                 density_ecut:float=None):
         """Build a periodic system
 
         Args:
             sz (float): edge size of the cubic unit cell
-            npts (int): number of sampling points per Cartesian direction
-            ecut (float, optional): spherical orbital plane-wave cutoff in
-                Hartree. When omitted, the legacy full FFT cube is used.
+            ecut (float): spherical wavefunction plane-wave cutoff in Hartree.
+            density_ecut (float, optional): density cutoff in Hartree. Defaults
+                to four times ``ecut``, as required to represent products of
+                wavefunctions without aliasing.
         """
+        if not np.isfinite(sz) or sz <= 0:
+            raise ValueError('sz must be positive and finite.')
+        if not np.isfinite(ecut) or ecut <= 0:
+            raise ValueError('ecut must be positive and finite.')
+        if density_ecut is None:
+            density_ecut = 4 * ecut
+        if not np.isfinite(density_ecut) or density_ecut < 4 * ecut:
+            raise ValueError('density_ecut must be at least four times ecut.')
+
+        # Retain both derived sizes so the solver can later use separate
+        # wavefunction and density FFT grids without changing the input model.
+        self.__wavefunction_npts = self.__grid_size(sz, ecut)
+        self.__density_npts = self.__grid_size(sz, density_ecut)
         
         # size of the cube edges
         self.__sz = sz          
         
-        # number of grid points in each cartesian direction
-        self.__npts = npts
+        # The current solver uses the density grid for all FFT operations.
+        self.__npts = self.__density_npts
         
         # unit cell volume
         self.__Omega = sz**3
@@ -53,19 +69,9 @@ class PeriodicSystem:
         # Select the orbital plane-wave basis.  The FFT grid is also used for
         # densities and local potentials, but only coefficients inside this
         # spherical cutoff are variational degrees of freedom.
-        self.__ecut = ecut
-        self.__pw_mask = np.ones_like(self.__k2, dtype=bool)
-        if ecut is not None:
-            if ecut <= 0:
-                raise ValueError('ecut must be positive.')
-            gnyquist = np.pi * npts / sz
-            enyquist = 0.5 * gnyquist**2
-            if ecut >= enyquist:
-                raise ValueError(
-                    'ecut must be below the one-dimensional FFT Nyquist '
-                    f'energy ({enyquist:.6f} Ht).'
-                )
-            self.__pw_mask = 0.5 * self.__k2 <= ecut
+        self.__ecut = float(ecut)
+        self.__density_ecut = float(density_ecut)
+        self.__pw_mask = 0.5 * self.__k2 <= self.__ecut
         
         # create placeholders for atom positions and charges
         self.__atompos = np.zeros((0,3), dtype=np.float64)
@@ -178,20 +184,32 @@ class PeriodicSystem:
         return self.__pw_mask
 
     def get_ecut(self):
-        """Get the orbital cutoff in Hartree, or ``None`` for the legacy basis."""
+        """Get the wavefunction cutoff in Hartree."""
         return self.__ecut
+
+    def get_density_ecut(self) -> float:
+        """Get the density cutoff in Hartree."""
+        return self.__density_ecut
+
+    def get_wavefunction_npts(self) -> int:
+        """Get the prospective standalone wavefunction FFT grid size."""
+        return self.__wavefunction_npts
+
+    def get_density_npts(self) -> int:
+        """Get the density FFT grid size used by the current solver."""
+        return self.__density_npts
 
     def get_n_plane_waves(self) -> int:
         """Get the number of plane waves in the orbital basis."""
         return int(np.count_nonzero(self.__pw_mask))
     
     def get_npts(self) -> int:
-        """Get the number of sampling points per Cartesian direction
+        """Get the working density-grid size per Cartesian direction.
 
         Returns:
-            int: number of sampling points per Cartesian direction
+            int: number of density-grid points per Cartesian direction
         """
-        return self.__npts
+        return self.__density_npts
     
     def get_nelec(self) -> int:
         """Get the number of electrons
@@ -242,25 +260,46 @@ class PeriodicSystem:
         self.__cvec = cvec
         self.__kvec = kvec
         self.__k2 = k2
+
+    @staticmethod
+    def __grid_size(sz:float, cutoff:float) -> int:
+        """Return an FFT-friendly grid that represents ``cutoff`` exactly.
+
+        A symmetric reciprocal grid needs indices from ``-m`` through ``m``,
+        where ``m`` is the largest integer shell inside the requested cutoff.
+        ``next_fast_len`` may enlarge that minimum for efficient FFTs.
+        """
+        gmax = np.sqrt(2 * cutoff)
+        max_index = int(np.floor(sz * gmax / (2 * np.pi) + 1e-12))
+        return int(next_fast_len(2 * max_index + 1))
         
-    def calculate_ewald_sum(self, gcut:float=2, gamma:float=1e-8) -> float:
+    def calculate_ewald_sum(self, gcut:float=2, gamma:float=1e-8,
+                            charges:np.ndarray=None) -> float:
         """Calculate Ewald sum
 
         Args:
             gcut (float, optional): Plane wave cut off energy in Ht. Defaults to 2.
             gamma (float, optional): Separation parameter. Defaults to 1e-8.
+            charges (np.ndarray, optional): Ionic charges. Defaults to the
+                stored nuclear charges.
 
         Returns:
             float: Ewald sum in Ht
         """
+        if charges is None:
+            charges = self.__atomchg
+        charges = np.asarray(charges, dtype=float)
+        if charges.shape != self.__atomchg.shape:
+            raise ValueError('Ionic charges must match the number of atoms.')
+
         # establish alpha value for screening Gaussian charges
         alpha = -0.25 * gcut**2 / np.log(gamma)
 
         # subtract spurious self-interaction
-        Eself = np.sqrt(alpha / np.pi) * np.sum(self.__atomchg**2)
+        Eself = np.sqrt(alpha / np.pi) * np.sum(charges**2)
         
         # subtract the electroneutrality term using a uniform background charge
-        Een = np.pi * np.sum(self.__atomchg)**2 / (2 * alpha * self.__Omega)
+        Een = np.pi * np.sum(charges)**2 / (2 * alpha * self.__Omega)
 
         # calculate short-range interaction
         Esr = 0
@@ -271,7 +310,7 @@ class PeriodicSystem:
         for ia in range(len(self.__atompos)):
             for ja in range(len(self.__atompos)):
                 Rij = self.__atompos[ia] - self.__atompos[ja]       # interatomic distance
-                ZiZj = self.__atomchg[ia] * self.__atomchg[ja]      # product of charges
+                ZiZj = charges[ia] * charges[ja]                    # product of charges
                 for t in T:   # loop over all unit cell permutations
                     R = np.linalg.norm(Rij + t)
                     Esr += 0.5 * ZiZj * math.erfc(R * np.sqrt(alpha)) / R
@@ -291,7 +330,7 @@ class PeriodicSystem:
         for ia in range(len(self.__atompos)):
             for ja in range(len(self.__atompos)):
                 Rij = self.__atompos[ia] - self.__atompos[ja]
-                ZiZj = self.__atomchg[ia] * self.__atomchg[ja]
+                ZiZj = charges[ia] * charges[ja]
                 GR = np.sum(G * Rij, axis=1)
                 Elr += ZiZj * np.sum(pre * np.cos(GR)) # discard imaginary values by using cos
         

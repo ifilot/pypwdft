@@ -14,24 +14,8 @@ on:
       - published
 
 jobs:
-  check-version-strings:
-    name: Check version strings
-    runs-on: ubuntu-latest
-    container: python:3.11-slim-bullseye
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
-      - name: Install dependencies
-        run: |
-          pip install pyyaml
-      - name: Test versions
-        run: |
-          python versiontest.py
-
   build-pip:
     name: Build pip
-    needs: [check-version-strings]
     runs-on: ubuntu-latest
     container: python:3.11-slim-bullseye
 

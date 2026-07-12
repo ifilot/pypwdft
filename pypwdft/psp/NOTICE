@@ -1,0 +1,4 @@
+The pseudopotential parameter files in pade/ and pbe/ were copied from the
+eminus 3.2.2 distribution. eminus records that these files originate from the
+CP2K data repository and describes them as GPL-2.0 licensed:
+https://github.com/cp2k/cp2k-data

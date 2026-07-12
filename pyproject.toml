@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm"]
+requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pypwdft"
-version = "0.2.2"
+version = "0.3.0"
 authors = [
   { name="Ivo Filot", email="i.a.w.filot@tue.nl" }
 ]

@@ -19,7 +19,7 @@ class TestSystemBuilder(unittest.TestCase):
         Test equivalence assessment real and reciprocal space Hartree energy
         """
         # Grab system from SystemBuilder
-        s = SystemBuilder().from_name('CH4', sz = 10.0, npts = 32)
+        s = SystemBuilder().from_name('CH4', sz=10.0, ecut=5)
 
         atompos = np.array([[5.00000000, 5.00000000, 5.00000000],
                             [6.19575624, 6.19575624, 6.19575624],

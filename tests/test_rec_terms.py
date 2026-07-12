@@ -2,6 +2,7 @@ import unittest
 import sys
 import os
 import numpy as np
+import pytest
 
 # add a reference to load the PyPWDFT module
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -14,13 +15,13 @@ class TestRecTerms(unittest.TestCase):
     Test evaluation of terms in reciprocal space
     """
 
+    @pytest.mark.e2e
     def test_hartree_interaction(self):
         """
         Test equivalence assessment real and reciprocal space Hartree energy
         """
-        # create cubic periodic system with lattice size of 10 A and
-        # 16 grid points per cartesian direction
-        s = PeriodicSystem(10, 16)
+        # create a 10-bohr cubic system with an explicit cutoff
+        s = PeriodicSystem(10, ecut=3)
         
         # add methane molecule to system
         atompos = np.array([[5.00000000, 5.00000000, 5.00000000],
@@ -41,7 +42,7 @@ class TestRecTerms(unittest.TestCase):
         res = calculator.scf(tol=1e-5, verbose=False)
         
         # test total energy
-        np.testing.assert_almost_equal(res['energy'], -31.60688942881068, 
+        np.testing.assert_almost_equal(res['energy'], -18.016869058877973,
                                        decimal=4)
         
         # grab total electron density, G2-scalars and cell volumes

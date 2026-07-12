@@ -15,9 +15,8 @@ class TestPeriodicUnitCell(unittest.TestCase):
         """
         Test calculation of Ewald sum
         """
-        # create cubic periodic system with lattice size of 10 A and
-        # 32 grid points per cartesian direction
-        s = SystemBuilder().from_name('CH4', sz=10, npts=32)
+        # The Ewald energy is independent of the automatically selected grid.
+        s = SystemBuilder().from_name('CH4', sz=10, ecut=1)
         
         # calculate Ewald sum
         Eewald = s.calculate_ewald_sum()
@@ -29,9 +28,8 @@ class TestPeriodicUnitCell(unittest.TestCase):
         """
         Test calculation of Ewald sum
         """
-        # create cubic periodic system with lattice size of 10 A and
-        # 32 grid points per cartesian direction
-        s = SystemBuilder().from_name('CO', sz=10, npts=32)
+        # The Ewald energy is independent of the automatically selected grid.
+        s = SystemBuilder().from_name('CO', sz=10, ecut=1)
         
         # calculate Ewald sum
         Eewald = s.calculate_ewald_sum()

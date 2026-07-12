@@ -30,11 +30,11 @@ from pypwdft import PyPWDFT, SystemBuilder
 
 def main():
     # create cubic periodic system with lattice size of 10 Bohr units
-    npts = 32       # number of grid points
+    ecut = 5        # wavefunction cutoff in Hartree
     sz = 10
     
     # construct CO molecule system via SystemBuilder
-    s = SystemBuilder().from_name('CH4', sz=sz, npts=npts)
+    s = SystemBuilder().from_name('CH4', sz=sz, ecut=ecut)
         
     # construct calculator object
     calculator = PyPWDFT(s)

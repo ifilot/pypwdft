@@ -1,7 +1,5 @@
 # PyPWDFT
 [![build](https://github.com/ifilot/pypwdft/actions/workflows/build_pypi.yml/badge.svg)](https://github.com/ifilot/pypwdft/actions/workflows/build_pypi.yml)
-[![build](https://github.com/ifilot/pypwdft/actions/workflows/build_conda.yml/badge.svg)](https://github.com/ifilot/pypwdft/actions/workflows/build_conda.yml)
-[![Anaconda-Server Badge](https://anaconda.org/ifilot/pypwdft/badges/version.svg)](https://anaconda.org/ifilot/pypwdft)
 [![PyPI](https://img.shields.io/pypi/v/pypwdft?color=green)](https://pypi.org/project/pypwdft/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
@@ -18,9 +16,10 @@ Plane wave DFT electronic solver for educational purposes.
 ## Properties
 
 * Plane wave basis set
-* **No** pseudopotential implementation
+* Goedecker-Teter-Hutter (GTH) pseudopotentials with local and non-local terms
 * Slater exchange functional
 * Vosko-Wilk-Nusair correlation functional (VWN5)
+* Perdew-Burke-Ernzerhof (PBE) GGA exchange-correlation functional
 * Dualism: the same basis set is used to describe both the molecular orbitals
   as well as the electron density.
 * Option to specify FFT module (NumPy, SciPy or pyFFTW)
@@ -37,8 +36,8 @@ Plane wave DFT electronic solver for educational purposes.
 
 The script below shows an example calculation for the methane molecule placed in
 a cubic unit cell with edge sizes of 10 Bohr. First, a `PeriodicSystem` object
-is created that contains the dimensions of the cubic unit cell and the number of
-sampling points per Cartesian direction. The atoms are placed inside the unit
+is created with the dimensions of the cubic unit cell and the wavefunction
+cutoff; the FFT grids are derived automatically. The atoms are placed inside the unit
 cell. They are entered in Cartesian coordinates and are expected to lie within
 the unit cell. Note that `PyPWDFT` uses [atomic units ](https://en.wikipedia.org/wiki/Atomic_units)
 throughout the code. This means that all distances are in Bohr units and
@@ -64,10 +63,10 @@ import numpy as np
 
 def main():
     # create cubic periodic system with lattice size of 10 Bohr
-    npts = 16   # number of grid points
+    ecut = 5    # wavefunction cutoff in Hartree
     sz = 10
     # construct CH4 molecule system via SystemBuilder
-    s = SystemBuilder().from_name('CH4', sz=sz, npts=npts)
+    s = SystemBuilder().from_name('CH4', sz=sz, ecut=ecut)
         
     # construct calculator object
     calculator = PyPWDFT(s)
@@ -79,8 +78,11 @@ if __name__ == '__main__':
     main()
 ```
 
-This calculation gives the output as shown below. Note that this calculation
-uses a fairly small number of plane waves (only 4096) and a loose tolerance.
+This calculation gives output as shown below. The spherical wavefunction basis
+is selected by ``ecut``. PyPWDFT derives an FFT-friendly density grid capable
+of representing ``4 * ecut``; the resulting sizes are available as
+``s.get_wavefunction_npts()`` and ``s.get_density_npts()``. This example uses a
+fairly small number of plane waves and a loose tolerance.
 This has the benefit that the computation time is rather short, yet the final
 electronic energy is quite far off from the expected value for a LDA/DFT
 calculation of methane. Nevertheless, qualitatively decent molecular orbital
@@ -101,20 +103,60 @@ shapes are found.
 012 | Etot = -31.45248517 Ht | eps = 8.0570e-02 | dt = 0.0751 s
 ```
 
+### GTH pseudopotentials
+
+Pass a `GTHPseudopotential` object to the calculator to run a frozen-core
+calculation. The bundled parameter set is the LDA/PADE set used by `eminus`.
+Atomic charges stored in `PeriodicSystem` remain atomic numbers; the
+pseudopotential supplies the valence charges used for the electron count and
+ion-ion energy.
+
+```python
+from pypwdft import GTHPseudopotential, PyPWDFT, SystemBuilder
+
+system = SystemBuilder().from_name('ch4', sz=10, ecut=5)
+pp = GTHPseudopotential(system)
+result = PyPWDFT(system, fft='numpy', pseudopotential=pp).scf()
+```
+
+An alternative CP2K-style parameter directory can be supplied with
+`GTHPseudopotential(system, path='/path/to/files')`. Use `charge_overrides`,
+for example `{'Ga': 13}`, when a non-default valence partition is required.
+
+For a PBE calculation, select both the PBE functional and matching bundled
+GTH-PBE parameter family:
+
+```python
+pp = GTHPseudopotential(system, family='pbe')
+result = PyPWDFT(
+    system,
+    fft='numpy',
+    functional='pbe',
+    pseudopotential=pp,
+).scf()
+```
+
+The default remains `functional='lda'`, using Slater exchange and VWN5
+correlation. `functional='svwn5'` is accepted as an alias for LDA.
+
 ## Example results
 
-Occupied molecular orbitals of CH4 (10x10x10 A cell, 16 grid points, 1e-1 tolerance)
+Occupied molecular orbitals of CH4 (10x10x10 Bohr cell, 1e-1 tolerance)
 ![Occupied molecular orbitals of CH4](img/orbs_ch4.png)
 
-Valence molecular orbitals of CO (10x10x10 A cell, 32 grid points, 1e-4 tolerance)
+Valence molecular orbitals of CO (10x10x10 Bohr cell, 1e-4 tolerance)
 ![Valence molecular orbitals of CO](img/orbs_co.png)
 
 ## Computational details
 
 In contrast to localized orbital DFT, the basis functions in plane wave DFT are
-not 'spawned' by the atoms but by the unit cell. The number of plane waves is
-determined by the number of sampling points. `PyPWDFT` uses cubic unit cells and
-a fixed number of grid points per Cartesian direction. To get a proper
+not 'spawned' by the atoms but by the unit cell. The user selects a spherical
+wavefunction energy cutoff, which determines the number of plane waves.
+`PyPWDFT` uses cubic unit cells and automatically selects FFT-friendly grid
+sizes. The density cutoff defaults to four times the wavefunction cutoff. This
+currently determines the common working FFT grid; the wavefunction and density
+grid sizes are tracked separately in preparation for a future dual-grid
+implementation. To get a proper
 description (expansion) of the electron density and of the atomic orbitals, the
 plane wave basis set needs to be relatively large. In comparison to localized
 orbital DFT, many more basis functions are needed and plane wave basis set host
@@ -125,16 +167,15 @@ is solved. In `PyPWDFT`, the Implicitly Restarted Arnoldi Method as implemented
 in the [eigs function of Scipy](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.linalg.eigs.html)
 is used for this purpose.
 
-Conventional plane wave DFT calculations use a so-called frozen core
+Conventional plane wave DFT calculations can use a so-called frozen core
 approximation wherein the core electrons are not explicitly calculated but are
 represented by a pseudopotential. As the core electrons do not participate in
 chemical bonding, their wave function varies little by the chemical environment
-of the nuclei and one could therefore keep them fixed. `PyPWDFT` does not use
-such pseudopotentials and explicitly calculates the core electrons.
-Unfortunately, the core electrons require a large amount of plane waves for an
-accurate description. As such, if one requires an accurate calculation using
-`PyPWDFT`, a very large basis set is required which will result in lengthy
-calculations.
+of the nuclei and one could therefore keep them fixed. `PyPWDFT` supports GTH
+pseudopotentials for frozen-core calculations while retaining the original
+all-electron Coulomb mode. Core electrons require many plane waves in
+all-electron mode, so the pseudopotential mode is generally more efficient for
+heavier elements.
 
 ## Scaling properties
 
@@ -143,7 +184,8 @@ than commercial PW-DFT packages which use compiled languages such as C++ and/or
 FORTRAN. To assess the efficiency and scaling properties of `PyPWDFT`, consider
 the methane molecule inside a 10x10x10 Bohr unit cell as a probe system.
 In the graph below, the total energy and computation time as function of the
-number of grid points per Cartesian direction is shown.
+number of grid points per Cartesian direction is shown. This historical grid
+scaling corresponds directly to increasing the plane-wave cutoff.
 
 ![Scaling of computation as function of number of grid points](img/scaling_ch4.png)
 

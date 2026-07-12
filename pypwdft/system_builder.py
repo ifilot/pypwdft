@@ -30,28 +30,36 @@ class SystemBuilder:
         """
         pass
 
-    def from_name(self, molname:str, sz:float=10, npts:int=32) -> PeriodicSystem:
+    def from_name(self, molname:str, sz:float=10, *, ecut:float,
+                  density_ecut:float=None) -> PeriodicSystem:
         """Create a PeriodicSystem instance by specifying the name of the molecule
 
         Args:
             molname (str): name of the molecule
             sz (float, optional): edge size of the cubic unit cell in a.u. Defaults to 10 a.u.
-            npts (int, optional): number of sampling points per Cartesian direction. Defaults to 32.
+            ecut (float): wavefunction plane-wave cutoff in Hartree.
+            density_ecut (float, optional): density cutoff in Hartree. Defaults
+                to four times ``ecut``.
 
         Returns:
             PeriodicSystem: PeriodicSystem instance encapsulating the specified molecule
         """
         
         fname = os.path.join(os.path.dirname(__file__), 'molecules', molname.lower() + '.xyz')
-        return self.from_file(fname, sz=sz, npts=npts)
+        return self.from_file(
+            fname, sz=sz, ecut=ecut, density_ecut=density_ecut
+        )
        
-    def from_file(self, path:str, sz:float=10, npts:int=32) -> PeriodicSystem:
+    def from_file(self, path:str, sz:float=10, *, ecut:float,
+                  density_ecut:float=None) -> PeriodicSystem:
         """Construct a PeriodicSystem instance from a .xyz file
 
         Args:
             path (str): path to .xyz file
             sz (float, optional): edge size of the cubic unit cell in a.u. Defaults to 10 a.u.
-            npts (int, optional): number of sampling points per Cartesian direction. Defaults to 32.
+            ecut (float): wavefunction plane-wave cutoff in Hartree.
+            density_ecut (float, optional): density cutoff in Hartree. Defaults
+                to four times ``ecut``.
 
         Returns:
             PeriodicSystem: PeriodicSystem instance encapsulating the specified molecule
@@ -59,7 +67,9 @@ class SystemBuilder:
         with open(path, 'r') as f:
             lines = f.readlines()
             nratoms = int(lines[0].strip())
-            psys = PeriodicSystem(sz=sz, npts=npts)
+            psys = PeriodicSystem(
+                sz=sz, ecut=ecut, density_ecut=density_ecut
+            )
             hsz = sz * 0.5
 
             for line in lines[2:2+nratoms]:

@@ -28,15 +28,31 @@ class PyPWDFT:
     """
     Class that encapsulates the planewave DFT method
     """
-    def __init__(self, sys:PeriodicSystem, fft:str='pyfftw'):
+    def __init__(self, sys:PeriodicSystem, fft:str='pyfftw',
+                 pseudopotential=None, functional:str='lda'):
         """Build PyPWDFT class
 
         Args:
             sys (PeriodicSystem): periodic system
             fft (str, optional): which FFT algorithm to use. Defaults to 'pyfftw'.
+            pseudopotential (optional): Ionic pseudopotential object. Defaults
+                to an all-electron Coulomb potential.
+            functional (str, optional): Exchange-correlation functional.
+                Supported values are ``'lda'`` (SVWN5) and ``'pbe'``.
         """
         self.__s = sys
         self.__fft = fft
+        self.__pseudopotential = pseudopotential
+        functional = functional.lower()
+        aliases = {'svwn5': 'lda'}
+        self.__functional = aliases.get(functional, functional)
+        if self.__functional not in {'lda', 'pbe'}:
+            raise ValueError(
+                f'Unknown exchange-correlation functional: {functional}'
+            )
+        if (pseudopotential is not None and
+                pseudopotential.system is not sys):
+            raise ValueError('The pseudopotential belongs to another system.')
         
     def scf(self, tol:float=1e-5, nsol:int=None, verbose:bool=False,
             density_tol:float=None, maxiter:int=100) -> dict:
@@ -57,7 +73,10 @@ class PyPWDFT:
         # grab a set of auxiliary variables from the PeriodicSystem class
         tstart = timeit.default_timer()     # keep track of overall time
         npts = self.__s.get_npts()          # #gridpoints per Cart. dir.
-        nelec = self.__s.get_nelec()        # number of electrons
+        if self.__pseudopotential is None:
+            nelec = self.__s.get_nelec()    # number of electrons
+        else:
+            nelec = self.__pseudopotential.nelec
         if nelec != int(nelec):
             raise ValueError('The number of electrons must be an integer.')
         nelec = int(nelec)
@@ -116,15 +135,23 @@ class PyPWDFT:
         it = 0
         
         # pre-calculate the repulsion between the periodic set of nuclei
-        Eewald = self.__s.calculate_ewald_sum()
+        if self.__pseudopotential is None:
+            Eewald = self.__s.calculate_ewald_sum()
+        else:
+            Eewald = self.__pseudopotential.ionic_energy()
         
         # calculate the external potential by the nuclei
-        vpot = self.__s.calculate_vpot()
+        if self.__pseudopotential is None:
+            vpot = self.__s.calculate_vpot()
+            nonlocal_operator = None
+        else:
+            vpot = self.__pseudopotential.local_potential()
+            nonlocal_operator = self.__pseudopotential.apply_nonlocal
         
         # construct initial electron density, this density is basically
         # a homogeneous electron density that adds up to the total number
         # electrons in the unit cell
-        edens = self.__build_initial_edens()
+        edens = self.__build_initial_edens(nelec)
         
         # loop until both energy and density are converged
         converged = False
@@ -137,14 +164,14 @@ class PyPWDFT:
             
             # Calculate the input effective potential.
             harpot = self.__calculate_hartree_potential(edens, k2)
-            fx, vx = self.__lda_x(edens)
-            fc, vc = self.__lda_c_vwn(edens)
-            vxc = vx + vc
+            fxc, vxc = self.__calculate_xc(edens)
             vtot = np.real(vpot + harpot + vxc)
             
             # construct a Linear Operation class to calculate a Hamiltonian
             # element
-            A = LinOpH(vtot, npts, k2, fft=self.__fft, pw_mask=pw_mask)
+            A = LinOpH(vtot, npts, k2, fft=self.__fft,
+                       pw_mask=pw_mask,
+                       nonlocal_operator=nonlocal_operator)
             e,v = scipy.sparse.linalg.eigsh(A, nsol, which='SA', v0=v0)
 
             # Sort before selecting occupied states; eigensolver ordering
@@ -171,9 +198,7 @@ class PyPWDFT:
             # Evaluate all density-dependent energy terms using the same
             # output density as the orbitals and kinetic energy.
             harpot = self.__calculate_hartree_potential(output_density, k2)
-            fx, vx = self.__lda_x(output_density)
-            fc, vc = self.__lda_c_vwn(output_density)
-            fxc = fx + fc
+            fxc, _ = self.__calculate_xc(output_density)
             
             # calculate repulsion between the electrons
             Erep = np.real(0.5 * np.einsum('ijk,ijk', harpot, output_density) * dV)
@@ -182,16 +207,23 @@ class PyPWDFT:
             Enuc = np.real(np.einsum('ijk,ijk', vpot, output_density)) * dV
             
             # calculate kinetic energy (done in reciprocal space)
-            Ekin = np.real(np.einsum('ijkl,ijkl,jkl', 
+            Ekin = np.real(np.einsum('ijkl,ijkl,jkl',
                            mo_fft[:nocc],
                            mo_fft[:nocc].conjugate(),
                            k2))
+
+            if self.__pseudopotential is None:
+                Enonloc = 0.0
+            else:
+                Enonloc = self.__pseudopotential.nonlocal_energy(
+                    v[:, :nocc]
+                )
             
             # calculate exchange-correlation energy
             Exc = np.real(np.einsum('ijk,ijk', fxc, output_density)) * dV
             
             # sum all terms to find total electronic energy
-            Etot = Ekin + Enuc + Erep + Eewald + Exc
+            Etot = Ekin + Enuc + Enonloc + Erep + Eewald + Exc
             
             # calculate difference between consecutive output energies
             diff = np.abs(Etot - Etotold)
@@ -228,10 +260,11 @@ class PyPWDFT:
         # returned orbitals, density, and every energy component belong to one
         # consistent final output state rather than to a mixed density.
         harpot = self.__calculate_hartree_potential(edens, k2)
-        fx, vx = self.__lda_x(edens)
-        fc, vc = self.__lda_c_vwn(edens)
-        vtot = np.real(vpot + harpot + vx + vc)
-        A = LinOpH(vtot, npts, k2, fft=self.__fft, pw_mask=pw_mask)
+        _, vxc = self.__calculate_xc(edens)
+        vtot = np.real(vpot + harpot + vxc)
+        A = LinOpH(vtot, npts, k2, fft=self.__fft,
+                   pw_mask=pw_mask,
+                   nonlocal_operator=nonlocal_operator)
         e, v = scipy.sparse.linalg.eigsh(A, nsol, which='SA', v0=v0)
         indx = e.argsort()
         e = e[indx]
@@ -247,16 +280,18 @@ class PyPWDFT:
         edens = final_density
 
         harpot = self.__calculate_hartree_potential(edens, k2)
-        fx, _ = self.__lda_x(edens)
-        fc, _ = self.__lda_c_vwn(edens)
-        fxc = fx + fc
+        fxc, _ = self.__calculate_xc(edens)
         Erep = np.real(0.5 * np.einsum('ijk,ijk', harpot, edens) * dV)
         Enuc = np.real(np.einsum('ijk,ijk', vpot, edens)) * dV
         Ekin = np.real(np.einsum(
             'ijkl,ijkl,jkl', mo_fft[:nocc], mo_fft[:nocc].conjugate(), k2
         ))
+        if self.__pseudopotential is None:
+            Enonloc = 0.0
+        else:
+            Enonloc = self.__pseudopotential.nonlocal_energy(v[:, :nocc])
         Exc = np.real(np.einsum('ijk,ijk', fxc, edens)) * dV
-        Etot = Ekin + Enuc + Erep + Eewald + Exc
+        Etot = Ekin + Enuc + Enonloc + Erep + Eewald + Exc
         
         # determine total computation time
         tstop = timeit.default_timer()
@@ -268,6 +303,7 @@ class PyPWDFT:
             'Etot': Etot,
             'Ekin': Ekin,
             'Enuc': Enuc,
+            'Enonloc': Enonloc,
             'Erep': Erep,
             'Exc': Exc,
             'edens': edens,
@@ -283,7 +319,12 @@ class PyPWDFT:
             'density_residual': density_residual,
             'converged': converged,
             'ecut': self.__s.get_ecut(),
+            'density_ecut': self.__s.get_density_ecut(),
+            'wavefunction_npts': self.__s.get_wavefunction_npts(),
+            'density_npts': self.__s.get_density_npts(),
             'npw': npw,
+            'pseudopotential': self.__pseudopotential,
+            'functional': self.__functional,
         }
         
         return res
@@ -306,13 +347,14 @@ class PyPWDFT:
         
         return harpot
     
-    def __build_initial_edens(self):
+    def __build_initial_edens(self, nelec=None):
         """
         Construct a uniform background charge to kick-start the SCF procedure
         """
         npts = self.__s.get_npts()      # number of grid points per direction
         Omega = self.__s.get_omega()    # unit cell volume
-        nelec = self.__s.get_nelec()    # number of electrons
+        if nelec is None:
+            nelec = self.__s.get_nelec()
         
         # return a field with a homogeneous electron density that adds up
         # to the total number of electrons
@@ -336,10 +378,13 @@ class PyPWDFT:
         Vosko-Wilk-Nusair correlation functional, see Parr and Yang page 275
         equation E.27
         """
+        # VWN5 fit to the Ceperley-Alder Monte Carlo electron-gas data.
+        # A is expressed in Rydberg here and the factor 1/2 below converts
+        # the correlation energy to Hartree.
         A = 0.0621814
-        x0 = -0.409286
-        b = 13.0720
-        c = 42.7198
+        x0 = -0.10498
+        b = 3.72744
+        c = 12.9352
     
         rs = (3 / (4 * np.pi * rho))**(1 / 3)
     
@@ -359,6 +404,127 @@ class PyPWDFT:
             (2 / (x - x0) - tx / X - 4 * (2 * x0 + b) / tt))
     
         return ec,vc
+
+    def __calculate_xc(self, rho:np.ndarray) -> (np.ndarray, np.ndarray):
+        """Evaluate XC energy per particle and its multiplicative potential."""
+        if self.__functional == 'lda':
+            ex, vx = self.__lda_x(rho)
+            ec, vc = self.__lda_c_vwn(rho)
+            return ex + ec, vx + vc
+        return self.__pbe_xc(rho)
+
+    def __pbe_xc(self, rho:np.ndarray) -> (np.ndarray, np.ndarray):
+        """Spin-unpolarized PBE energy per particle and GGA potential."""
+        rho = np.maximum(np.asarray(rho, dtype=float), 1e-14)
+        grad = self.__gradient(rho)
+        norm_grad = np.linalg.norm(grad, axis=-1)
+
+        # PBE exchange: LDA exchange times the enhancement factor F_x(s).
+        kappa = 0.804
+        mu = 0.2195149727645171
+        kf = (3 * np.pi**2 * rho)**(1 / 3)
+        s = norm_grad / (2 * kf * rho)
+        denominator = 1 + mu * s**2 / kappa
+        enhancement_correction = kappa - kappa / denominator
+        ex_lda = -3 * kf / (4 * np.pi)
+        ex = ex_lda * (1 + enhancement_correction)
+
+        dfx_ds = 2 * mu * s / denominator**2
+        exchange_gradient = ex_lda * enhancement_correction
+        vx_gradient = (
+            exchange_gradient
+            + ex_lda / 3 * enhancement_correction
+            - 4 / 3 * ex_lda * dfx_ds * s
+        )
+        vx_local = 4 / 3 * ex_lda + vx_gradient
+        with np.errstate(divide='ignore', invalid='ignore'):
+            coeff_x = np.where(
+                norm_grad > 0,
+                ex_lda * dfx_ds / (2 * kf * norm_grad),
+                0,
+            )
+
+        # PBE correlation uses the modified Perdew-Wang LDA correlation
+        # together with the PBE gradient correction H.
+        ec_lda, vc_lda = self.__lda_c_pw_mod(rho)
+        beta = 0.06672455060314922
+        gamma = (1 - np.log(2)) / np.pi**2
+        rs = (3 / (4 * np.pi * rho))**(1 / 3)
+        kf_c = (9 * np.pi / 4)**(1 / 3) / rs
+        ks = np.sqrt(4 * kf_c / np.pi)
+        divt = 2 * ks * rho
+        t = norm_grad / divt
+        exponential = np.exp(-ec_lda / gamma)
+        a = beta / (gamma * (exponential - 1))
+        t2 = t**2
+        at2 = a * t2
+        a2t4 = at2**2
+        divsum = 1 + at2 + a2t4
+        div = (1 + at2) / divsum
+        nolog = 1 + beta / gamma * t2 * div
+        h = gamma * np.log(nolog)
+
+        factor = a2t4 * (2 + at2) / divsum**2
+        dh = beta * t2 / nolog * (
+            -7 / 3 * div
+            - factor * (a * exponential * (vc_lda - ec_lda) / beta - 7 / 3)
+        )
+        ec = ec_lda + h
+        vc_local = vc_lda + h + dh
+        coeff_c = beta / (divt * ks) * (div - factor) / nolog
+
+        gradient_field = (coeff_x + coeff_c)[..., None] * grad
+        potential = vx_local + vc_local - self.__divergence(gradient_field)
+        return (
+            np.nan_to_num(ex + ec),
+            np.nan_to_num(potential),
+        )
+
+    def __lda_c_pw_mod(self, rho:np.ndarray) -> (np.ndarray, np.ndarray):
+        """Modified Perdew-Wang LDA correlation used by PBE."""
+        a = 0.0310907
+        a1 = 0.2137
+        b1, b2, b3, b4 = 7.5957, 3.5876, 1.6382, 0.49294
+        rs = (3 / (4 * np.pi * rho))**(1 / 3)
+        rs12 = np.sqrt(rs)
+        rs32 = rs * rs12
+        rs2 = rs**2
+        omega = 2 * a * (
+            b1 * rs12 + b2 * rs + b3 * rs32 + b4 * rs2
+        )
+        logarithm = np.log(1 + 1 / omega)
+        ec = -2 * a * (1 + a1 * rs) * logarithm
+        domega = 2 * a * (
+            0.5 * b1 * rs12
+            + b2 * rs
+            + 1.5 * b3 * rs32
+            + 2 * b4 * rs2
+        )
+        vc = (
+            -2 * a * (1 + 2 / 3 * a1 * rs) * logarithm
+            - 2 / 3 * a * (1 + a1 * rs)
+            * domega / (omega * (omega + 1))
+        )
+        return ec, vc
+
+    def __gradient(self, field:np.ndarray) -> np.ndarray:
+        """Calculate a periodic real-space gradient using FFT derivatives."""
+        reciprocal = np.fft.fftn(field)
+        kvec = self.__s.get_pw_k()
+        gradient = np.empty((*field.shape, 3), dtype=float)
+        for dim in range(3):
+            gradient[..., dim] = np.real(
+                np.fft.ifftn(1j * kvec[..., dim] * reciprocal)
+            )
+        return gradient
+
+    def __divergence(self, field:np.ndarray) -> np.ndarray:
+        """Calculate the periodic divergence of a Cartesian vector field."""
+        kvec = self.__s.get_pw_k()
+        divergence = np.zeros(field.shape[:-1], dtype=complex)
+        for dim in range(3):
+            divergence += 1j * kvec[..., dim] * np.fft.fftn(field[..., dim])
+        return np.real(np.fft.ifftn(divergence))
     
 class LinOpH(LinearOperator):
     """
@@ -366,7 +532,8 @@ class LinOpH(LinearOperator):
     the Hamiltonian matrix to an input vector
     """
     def __init__(self, nu_pot:np.ndarray, npts:int, k2:np.ndarray,
-                 fft:str='pyfftw', pw_mask:np.ndarray=None):
+                 fft:str='pyfftw', pw_mask:np.ndarray=None,
+                 nonlocal_operator=None):
         """Build Linear Operator class to solve matrix-vector multiplication in Arnoldi method
 
         Args:
@@ -376,6 +543,8 @@ class LinOpH(LinearOperator):
             fft (str, optional): which FFT algorithm to use. Defaults to 'pyfftw'.
             pw_mask (np.ndarray, optional): mask selecting the spherical
                 orbital plane-wave basis. Defaults to all FFT coefficients.
+            nonlocal_operator (callable, optional): Function applying a
+                non-local potential to active reciprocal coefficients.
 
         Raises:
             Exception: when unknown FFT algorithm is being requested.
@@ -386,6 +555,7 @@ class LinOpH(LinearOperator):
             pw_mask = np.ones_like(k2, dtype=bool)
         self.pw_mask = np.asarray(pw_mask, dtype=bool).flatten()
         self.k2 = k2.flatten()[self.pw_mask]
+        self.nonlocal_operator = nonlocal_operator
         super().__init__(
             dtype=np.complex128,
             shape=(len(self.k2), len(self.k2)),
@@ -434,7 +604,10 @@ class LinOpH(LinearOperator):
         T = 0.5 * self.k2 * v
         
         # return solution vector
-        return T + self.__fft(psi).flatten()[self.pw_mask]
+        result = T + self.__fft(psi).flatten()[self.pw_mask]
+        if self.nonlocal_operator is not None:
+            result += self.nonlocal_operator(v)
+        return result
     
     def _solve_npfft(self, psi:np.ndarray) -> np.ndarray:
         """Solve potential interaction using Numpy FFT
