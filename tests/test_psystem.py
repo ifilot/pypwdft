@@ -7,7 +7,7 @@ import numpy as np
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # import the required libraries for the test
-from pypwdft import PeriodicSystem
+from pypwdft.psystem import PeriodicSystem
 
 class TestPeriodicUnitCell(unittest.TestCase):
         

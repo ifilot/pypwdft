@@ -1,13 +1,34 @@
-from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
+from importlib.metadata import version as _distribution_version
 
-from .pypwdft import PyPWDFT
-from .psystem import PeriodicSystem
-from .system_builder import SystemBuilder
-from .gth import GTHPseudopotential
+from .api import (
+    BasisInfo,
+    DFTResult,
+    EnergyComponents,
+    GTH,
+    OrbitalSet,
+    PWDFT,
+    SCFInfo,
+    SCFSettings,
+    Structure,
+)
+
+__all__ = [
+    "BasisInfo",
+    "DFTResult",
+    "EnergyComponents",
+    "GTH",
+    "OrbitalSet",
+    "PWDFT",
+    "SCFInfo",
+    "SCFSettings",
+    "Structure",
+    "__version__",
+]
 
 try:
-    __version__ = version("pypwdft")
-except PackageNotFoundError:
+    __version__ = _distribution_version("pypwdft")
+except _PackageNotFoundError:
     # The distribution metadata is unavailable when importing an uninstalled
     # source tree. Installed and editable packages obtain this from
     # ``pyproject.toml`` through their generated metadata.

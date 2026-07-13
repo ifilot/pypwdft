@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
 
-from pypwdft import GTHPseudopotential, PeriodicSystem, PyPWDFT
+from pypwdft.gth import GTHPseudopotential
+from pypwdft.psystem import PeriodicSystem
+from pypwdft.pypwdft import PyPWDFT
 from pypwdft.pypwdft import LinOpH
 
 

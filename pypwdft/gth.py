@@ -81,6 +81,7 @@ class GTHPseudopotential:
         self.nelec = int(np.sum(self.valence_charges))
         self._local_potential = None
         self._projector_channels = []
+        self._device_projector_channels = {}
         self._geometry = None
         self.rebuild()
 
@@ -202,6 +203,7 @@ class GTHPseudopotential:
         self._geometry = positions
         self._local_potential = self._build_local_potential()
         self._projector_channels = self._build_projectors()
+        self._device_projector_channels.clear()
         return self
 
     def _check_geometry(self):
@@ -311,6 +313,47 @@ class GTHPseudopotential:
         for beta, coupling in self._projector_channels:
             result += beta @ (coupling @ (beta.conj().T @ coefficients))
         return result[:, 0] if one_dimensional else result
+
+    def nonlocal_operator(self, array_module=np):
+        """Return a non-local operator using NumPy or a GPU array module.
+
+        GPU projector arrays are copied once and cached until :meth:`rebuild`
+        is called.  This keeps projector applications inside the device during
+        iterative eigensolver calls.
+        """
+        self._check_geometry()
+        if array_module is np:
+            return self.apply_nonlocal
+
+        module_name = array_module.__name__
+        try:
+            device_id = int(array_module.cuda.runtime.getDevice())
+        except AttributeError:
+            device_id = None
+        cache_key = (module_name, device_id)
+        if cache_key not in self._device_projector_channels:
+            self._device_projector_channels[cache_key] = [
+                (array_module.asarray(beta), array_module.asarray(coupling))
+                for beta, coupling in self._projector_channels
+            ]
+        channels = self._device_projector_channels[cache_key]
+        npw = self.system.get_n_plane_waves()
+
+        def apply(coefficients):
+            one_dimensional = coefficients.ndim == 1
+            if one_dimensional:
+                coefficients = coefficients[:, None]
+            if coefficients.ndim != 2 or coefficients.shape[0] != npw:
+                raise ValueError(
+                    "Expected active coefficients with shape (npw,) or "
+                    "(npw, nstate)."
+                )
+            result = array_module.zeros_like(coefficients, dtype=complex)
+            for beta, coupling in channels:
+                result += beta @ (coupling @ (beta.conj().T @ coefficients))
+            return result[:, 0] if one_dimensional else result
+
+        return apply
 
     def nonlocal_energy(self, occupied_coefficients, occupation=2.0):
         """Return the non-local energy for normalized occupied orbitals."""

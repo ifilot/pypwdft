@@ -7,7 +7,9 @@ import numpy as np
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # import the required libraries for the test
-from pypwdft import PeriodicSystem, PyPWDFT, SystemBuilder
+from pypwdft.psystem import PeriodicSystem
+from pypwdft.pypwdft import PyPWDFT
+from pypwdft.system_builder import SystemBuilder
 
 class TestSystemBuilder(unittest.TestCase):
     """

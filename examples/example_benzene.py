@@ -4,7 +4,7 @@ from pypwdft import PWDFT, Structure
 
 
 def main():
-    structure = Structure.from_name("CO", cell=10)
+    structure = Structure.from_name("benzene", cell=15)
     calculation = PWDFT(
         structure,
         cutoff=40,              # wavefunction cutoff in Hartree
@@ -16,15 +16,18 @@ def main():
         convergence=1e-4,           # convergence threshold for self-consistent field iterations
         density_convergence=1e-4,   # convergence threshold for density matrix updates
         verbosity=1,                # verbosity level for output (0: silent, 1: normal, 2: verbose)
-        bands=6
+        bands=18                    # number of bands to compute (including unoccupied orbitals)
     )
 
     print("Total energy:", result.energy.total)
     result.plot_orbitals(
-        plane="xz",
-        save="examples/example_co_contours.png",
+        plane="auto",               # avoid plotting an orbital's nodal plane
+        save="examples/example_benzene_contours.png",
         show_imaginary_norm=False,
-        occupied=False,
+        columns=6,
+        ngrid=3,
+        tick_rotation=45,
+        occupied=False,             # also plot unoccupied orbitals
     )
     plt.show()
 

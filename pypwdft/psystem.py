@@ -28,7 +28,8 @@ class PeriodicSystem:
     """
     def __init__(self, sz:float, *, ecut:float,
                  density_ecut:float=None):
-        """Build a periodic system
+        """
+        Build a periodic system
 
         Args:
             sz (float): edge size of the cubic unit cell
@@ -78,7 +79,8 @@ class PeriodicSystem:
         self.__atomchg = np.array([], dtype=np.uint8)
     
     def __str__(self) -> str:
-        """string representation of periodic system
+        """
+        String representation of periodic system
 
         Returns:
             str: string representation
@@ -89,7 +91,8 @@ class PeriodicSystem:
         return res
     
     def add_atom(self, x:float, y:float, z:float, charge:float, unit:str='bohr'):
-        """Add an atom to the unit cell
+        """
+        Add an atom to the unit cell
 
         Args:
             x (float): x-coordinate
@@ -115,7 +118,8 @@ class PeriodicSystem:
         self.__atomchg = np.append(self.__atomchg, charge)
     
     def get_atom_positions(self) -> np.ndarray:
-        """Get atomic positions in real-space
+        """
+        Get atomic positions in real-space
 
         Returns:
             np.ndarray: atomic positions
@@ -123,7 +127,8 @@ class PeriodicSystem:
         return self.__atompos
     
     def get_atom_charges(self) -> np.ndarray:
-        """Get the atomic charges
+        """
+        Get the atomic charges
 
         Returns:
             np.ndarray: atomic charges
@@ -131,7 +136,8 @@ class PeriodicSystem:
         return self.__atomchg
     
     def get_omega(self) -> float:
-        """Get unitcell volume
+        """
+        Get unitcell volume
 
         Returns:
             float: volume of the unit cell
@@ -139,7 +145,8 @@ class PeriodicSystem:
         return self.__Omega
     
     def get_r(self) -> np.ndarray:
-        """Get the sampling vectors in real-space
+        """
+        Get the sampling vectors in real-space
 
         Returns:
             np.ndarray: real-space sampling vectors
@@ -147,7 +154,8 @@ class PeriodicSystem:
         return self.__cvec
     
     def get_r_norms(self) -> np.ndarray:
-        """Get real-space sampling vector lengths
+        """
+        Get real-space sampling vector lengths
 
         Returns:
             np.ndarray: real-space sampling vector lengths
@@ -155,7 +163,8 @@ class PeriodicSystem:
         return np.sqrt(np.einsum('ijkl,ijkl->ijk', self.__cvec, self.__cvec))
     
     def get_pw_k(self) -> np.ndarray:
-        """Get the plane wave vectors
+        """
+        Get the plane wave vectors
 
         Returns:
             np.ndarray: plane wave vectors
@@ -163,8 +172,9 @@ class PeriodicSystem:
         return self.__kvec
     
     def get_ct(self) -> float:
-        """Get the FFT transformation constant from canonical FFT to an FFT using
-           a normalized plane wave basis set.
+        """
+        Get the FFT transformation constant from canonical FFT to an FFT using a
+        normalized plane wave basis set.
 
         Returns:
             float: FFT transformation constant
@@ -172,7 +182,8 @@ class PeriodicSystem:
         return np.sqrt(self.__Omega) / self.__npts**3
     
     def get_pw_k2(self) -> np.ndarray:
-        """Get the squared length of the plane wave vectors
+        """
+        Get the squared length of the plane wave vectors
 
         Returns:
             np.ndarray: squared length of plane wave vectors
@@ -180,31 +191,44 @@ class PeriodicSystem:
         return self.__k2
 
     def get_pw_mask(self) -> np.ndarray:
-        """Get the mask selecting orbital plane waves inside ``ecut``."""
+        """
+        Get the mask selecting orbital plane waves inside ``ecut``.
+        """
         return self.__pw_mask
 
     def get_ecut(self):
-        """Get the wavefunction cutoff in Hartree."""
+        """
+        Get the wavefunction cutoff in Hartree.
+        """
         return self.__ecut
 
     def get_density_ecut(self) -> float:
-        """Get the density cutoff in Hartree."""
+        """
+        Get the density cutoff in Hartree.
+        """
         return self.__density_ecut
 
     def get_wavefunction_npts(self) -> int:
-        """Get the prospective standalone wavefunction FFT grid size."""
+        """
+        Get the prospective standalone wavefunction FFT grid size.
+        """
         return self.__wavefunction_npts
 
     def get_density_npts(self) -> int:
-        """Get the density FFT grid size used by the current solver."""
+        """
+        Get the density FFT grid size used by the current solver.
+        """
         return self.__density_npts
 
     def get_n_plane_waves(self) -> int:
-        """Get the number of plane waves in the orbital basis."""
+        """
+        Get the number of plane waves in the orbital basis.
+        """
         return int(np.count_nonzero(self.__pw_mask))
     
     def get_npts(self) -> int:
-        """Get the working density-grid size per Cartesian direction.
+        """
+        Get the working density-grid size per Cartesian direction.
 
         Returns:
             int: number of density-grid points per Cartesian direction
@@ -220,7 +244,8 @@ class PeriodicSystem:
         return np.sum(self.__atomchg)
     
     def translate(self, dist:np.ndarray):
-        """Translate all atoms in unit cell
+        """
+        Translate all atoms in unit cell
 
         Args:
             dist (np.ndarray): displacement vector
@@ -263,7 +288,8 @@ class PeriodicSystem:
 
     @staticmethod
     def __grid_size(sz:float, cutoff:float) -> int:
-        """Return an FFT-friendly grid that represents ``cutoff`` exactly.
+        """
+        Return an FFT-friendly grid that represents ``cutoff`` exactly.
 
         A symmetric reciprocal grid needs indices from ``-m`` through ``m``,
         where ``m`` is the largest integer shell inside the requested cutoff.
@@ -275,7 +301,8 @@ class PeriodicSystem:
         
     def calculate_ewald_sum(self, gcut:float=2, gamma:float=1e-8,
                             charges:np.ndarray=None) -> float:
-        """Calculate Ewald sum
+        """
+        Calculate Ewald sum
 
         Args:
             gcut (float, optional): Plane wave cut off energy in Ht. Defaults to 2.
@@ -349,7 +376,8 @@ class PeriodicSystem:
         return M[~np.all(M == 0, axis=1)] # remove zero-term
     
     def calculate_vpot(self) -> np.ndarray:
-        """Construct the nuclear attraction potential
+        """
+        Construct the nuclear attraction potential
 
         Returns:
             np.ndarray: nuclear attraction potential in real-space

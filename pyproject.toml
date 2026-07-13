@@ -6,10 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "pypwdft"
 version = "0.3.0"
 authors = [
-  { name="Ivo Filot", email="i.a.w.filot@tue.nl" }
+  { name="Ivo Filot", email="ivo@ivofilot.nl" }
 ]
 maintainers = [
-    { name="Ivo Filot", email="i.a.w.filot@tue.nl" },
+    { name="Ivo Filot", email="ivo@ivofilot.nl" },
 ]
 description = "pypwdft"
 readme = "README.md"
@@ -24,6 +24,7 @@ dependencies = [
     "numpy",
     "mendeleev",
     "pyfftw",
+    "matplotlib",
 ]
 
 [project.optional-dependencies]
@@ -38,13 +39,6 @@ include-package-data = true
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["pypwdft*"]
-
-[tool.conda.environment]
-name = "demo"
-channels = [
-    "ifilot",
-    "conda-forge",
-]
 
 [project.urls]
 "Homepage" = "https://www.github.com/ifilot/pypwdft"

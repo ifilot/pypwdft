@@ -8,7 +8,8 @@ import pytest
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # import the required libraries for the test
-from pypwdft import PeriodicSystem, PyPWDFT
+from pypwdft.psystem import PeriodicSystem
+from pypwdft.pypwdft import PyPWDFT
 
 class TestRecTerms(unittest.TestCase):
     """

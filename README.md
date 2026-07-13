@@ -1,202 +1,205 @@
 # PyPWDFT
+
 [![build](https://github.com/ifilot/pypwdft/actions/workflows/build_pypi.yml/badge.svg)](https://github.com/ifilot/pypwdft/actions/workflows/build_pypi.yml)
 [![PyPI](https://img.shields.io/pypi/v/pypwdft?color=green)](https://pypi.org/project/pypwdft/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-## Purpose
-Plane wave DFT electronic solver for educational purposes.
+PyPWDFT is an educational pure-Python plane-wave density-functional theory
+solver. It supports LDA and PBE exchange-correlation functionals, GTH
+pseudopotentials, multiple CPU FFT implementations, and an optional CuPy/CUDA
+backend.
 
-> [!IMPORTANT]  
-> It has come to my attention that my code shares the same name as the one presented in the recent publication
-> by [Yang et al](https://pubs.acs.org/doi/10.1021/acs.jctc.4c01605). Unbeknownst to the authors of the paper and me,
-> we independently opted for the same name. I would like to clarify that my code was developed
-> entirely independently and has **no affiliation** with this publication. Moreover, my code predates the submission
-> of the paper by approximately one month and the publication itself by about six months.
+> [!IMPORTANT]
+> PyPWDFT was developed independently and has no affiliation with the program
+> of the same name described by Yang et al. The code in this repository
+> predates that publication.
 
-## Properties
+## Installation
 
-* Plane wave basis set
-* Goedecker-Teter-Hutter (GTH) pseudopotentials with local and non-local terms
-* Slater exchange functional
-* Vosko-Wilk-Nusair correlation functional (VWN5)
-* Perdew-Burke-Ernzerhof (PBE) GGA exchange-correlation functional
-* Dualism: the same basis set is used to describe both the molecular orbitals
-  as well as the electron density.
-* Option to specify FFT module (NumPy, SciPy or pyFFTW)
+```bash
+pip install pypwdft
+```
 
-## Dependencies
-
-`PyPWDFT` depends on the following modules:
-
-* [NumPy](https://numpy.org/)
-* [Scipy](https://scipy.org/)
-* [pyFFTW](https://pyfftw.readthedocs.io/)
-
-## Example calculation
-
-The script below shows an example calculation for the methane molecule placed in
-a cubic unit cell with edge sizes of 10 Bohr. First, a `PeriodicSystem` object
-is created with the dimensions of the cubic unit cell and the wavefunction
-cutoff; the FFT grids are derived automatically. The atoms are placed inside the unit
-cell. They are entered in Cartesian coordinates and are expected to lie within
-the unit cell. Note that `PyPWDFT` uses [atomic units ](https://en.wikipedia.org/wiki/Atomic_units)
-throughout the code. This means that all distances are in Bohr units and
-all energies are in Hartrees.
-
-Next, a `PyPWDFT` calculator object is constructed. The `PeriodicSystem` object
-is supplied as input. During initialization of the `PyPWDFT` calculator object,
-the user can also chose the preferred type of FFT algorithm. `PyPWDFT` can use
-NumPy FFT, Scipy FFT or PyPWDFT. Benchmark studies show that the latter is the
-most efficient algorithm, which is therefore also the default choice if nothing
-is specified by the user.
-
-To start the self-consistent field procedure, the `SCF()` method of the
-calculator object is executed. This method takes as input the criterion for
-electronic convergence (`tolerance`) and whether verbose output is requested.
-Using verbose output, the total electronic energy and computation time per
-electronic step in the SCF procedure is printed.
+## Quick start
 
 ```python
-# import the required libraries for the test
-from pypwdft import PyPWDFT, PeriodicSystem, SystemBuilder
-import numpy as np
+from pypwdft import PWDFT, Structure
 
-def main():
-    # create cubic periodic system with lattice size of 10 Bohr
-    ecut = 5    # wavefunction cutoff in Hartree
-    sz = 10
-    # construct CH4 molecule system via SystemBuilder
-    s = SystemBuilder().from_name('CH4', sz=sz, ecut=ecut)
-        
-    # construct calculator object
-    calculator = PyPWDFT(s)
-    
-    # perform self-consistent field procedure and store results in res object
-    res = calculator.scf(tol=1e-1, verbose=True)
+structure = Structure.from_name("H2", cell=10)
+calculation = PWDFT(
+    structure,
+    cutoff=40,
+    xc="pbe",
+    pseudopotential="gth",
+)
+result = calculation.run(
+    convergence=1e-6,
+    verbosity=1,
+)
 
-if __name__ == '__main__':
-    main()
+print(result.energy.total)
+result.plot_orbitals(
+    plane="xz",
+    save="h2-orbitals.png",
+)
 ```
 
-This calculation gives output as shown below. The spherical wavefunction basis
-is selected by ``ecut``. PyPWDFT derives an FFT-friendly density grid capable
-of representing ``4 * ecut``; the resulting sizes are available as
-``s.get_wavefunction_npts()`` and ``s.get_density_npts()``. This example uses a
-fairly small number of plane waves and a loose tolerance.
-This has the benefit that the computation time is rather short, yet the final
-electronic energy is quite far off from the expected value for a LDA/DFT
-calculation of methane. Nevertheless, qualitatively decent molecular orbital
-shapes are found.
+The API separates three concepts:
 
-```
-001 | Etot =  10.70148118 Ht | eps = 1.0701e+01 | dt = 0.0505 s
-002 | Etot =  -8.01768059 Ht | eps = 1.8719e+01 | dt = 0.0381 s
-003 | Etot = -19.73474499 Ht | eps = 1.1717e+01 | dt = 0.0488 s
-004 | Etot = -25.38933285 Ht | eps = 5.6546e+00 | dt = 0.0586 s
-005 | Etot = -28.06387148 Ht | eps = 2.6745e+00 | dt = 0.0632 s
-006 | Etot = -29.47265035 Ht | eps = 1.4088e+00 | dt = 0.0693 s
-007 | Etot = -30.27492437 Ht | eps = 8.0227e-01 | dt = 0.0706 s
-008 | Etot = -30.75674641 Ht | eps = 4.8182e-01 | dt = 0.0756 s
-009 | Etot = -31.05689472 Ht | eps = 3.0015e-01 | dt = 0.0743 s
-010 | Etot = -31.24824460 Ht | eps = 1.9135e-01 | dt = 0.0773 s
-011 | Etot = -31.37191520 Ht | eps = 1.2367e-01 | dt = 0.0789 s
-012 | Etot = -31.45248517 Ht | eps = 8.0570e-02 | dt = 0.0751 s
-```
+- `Structure`: atoms, coordinates, units, and cubic simulation cell.
+- `PWDFT`: physical and numerical calculation settings.
+- `DFTResult`: energies, orbitals, density, basis details, and SCF metadata.
 
-### GTH pseudopotentials
+PyPWDFT uses atomic units by default: lengths are in bohr and energies are in
+Hartree.
 
-Pass a `GTHPseudopotential` object to the calculator to run a frozen-core
-calculation. The bundled parameter set is the LDA/PADE set used by `eminus`.
-Atomic charges stored in `PeriodicSystem` remain atomic numbers; the
-pseudopotential supplies the valence charges used for the electron count and
-ion-ion energy.
+## Structures
+
+Load a bundled molecule or an XYZ file:
 
 ```python
-from pypwdft import GTHPseudopotential, PyPWDFT, SystemBuilder
-
-system = SystemBuilder().from_name('ch4', sz=10, ecut=5)
-pp = GTHPseudopotential(system)
-result = PyPWDFT(system, fft='numpy', pseudopotential=pp).scf()
+methane = Structure.from_name("CH4", cell=12)
+water = Structure.from_xyz("water.xyz", cell=12)
 ```
 
-An alternative CP2K-style parameter directory can be supplied with
-`GTHPseudopotential(system, path='/path/to/files')`. Use `charge_overrides`,
-for example `{'Ga': 13}`, when a non-default valence partition is required.
-
-For a PBE calculation, select both the PBE functional and matching bundled
-GTH-PBE parameter family:
+XYZ coordinates are interpreted as angstrom; `cell` is in bohr. Structures
+can also be constructed directly:
 
 ```python
-pp = GTHPseudopotential(system, family='pbe')
-result = PyPWDFT(
-    system,
-    fft='numpy',
-    functional='pbe',
-    pseudopotential=pp,
-).scf()
+hydrogen = Structure(
+    symbols=["H", "H"],
+    positions=[[0, 0, -0.37], [0, 0, 0.37]],
+    cell=6,
+    units="angstrom",
+)
 ```
 
-The default remains `functional='lda'`, using Slater exchange and VWN5
-correlation. `functional='svwn5'` is accepted as an alias for LDA.
+## Calculation configuration
+
+```python
+calculation = PWDFT(
+    methane,
+    cutoff=40,
+    density_cutoff=160,
+    xc="pbe",
+    pseudopotential="gth",
+    device="cpu",
+)
+```
+
+Selecting `pseudopotential="gth"` automatically matches GTH-PADE to LDA and
+GTH-PBE to PBE. Advanced valence selections use `GTH`:
+
+```python
+from pypwdft import GTH
+
+calculation = PWDFT(
+    structure,
+    cutoff=40,
+    xc="pbe",
+    pseudopotential=GTH(charges={"Ga": 13}),
+)
+```
+
+Use `pseudopotential="all-electron"` for an all-electron Coulomb calculation.
+
+## SCF settings
+
+```python
+from pypwdft import SCFSettings
+
+settings = SCFSettings(
+    convergence=1e-6,
+    density_convergence=1e-6,
+    max_iterations=150,
+    bands=8,
+    verbosity=1,
+)
+result = calculation.run(settings)
+```
+
+Settings can also be supplied directly to `run()`.
+
+## Results
+
+All results are exposed via a `DFTResult` dataclass which has the following
+data items.
+
+```python
+result.energy.total
+result.energy.kinetic
+result.energy.hartree
+result.energy.xc
+
+result.density
+result.orbitals.energies
+result.orbitals.real_space
+result.orbitals.reciprocal_space
+
+result.basis.plane_waves
+result.basis.wavefunction_grid
+result.basis.density_grid
+
+result.scf.converged
+result.scf.iterations
+result.scf.energy_residual
+result.scf.elapsed_time
+```
+
+## Plotting
+
+```python
+result.plot_orbitals(
+    plane="xz",
+    columns=3,
+    save="orbitals.pdf",
+    show_imaginary_norm=False,
+)
+result.plot_density(plane="xz", save="density.pdf")
+```
+
+Contour plots use symmetric orbital amplitudes, black isolines, physical axes,
+and configurable `xy`, `xz`, or `yz` planes. By default, titles report any
+imaginary norm that cannot be removed by a global phase rotation; set
+`show_imaginary_norm=False` to suppress this diagnostic.
+
+For batches containing orbitals with different nodal planes, use
+`plane="auto"` to select the most informative central plane per orbital.
+`ngrid` controls the number of ticks and `tick_rotation` rotates their labels.
+
+## GPU calculations
+
+After installing a CuPy wheel compatible with the local CUDA runtime:
+
+```python
+calculation = PWDFT(
+    structure,
+    cutoff=40,
+    xc="pbe",
+    pseudopotential="gth",
+    device="cuda",
+)
+result = calculation.run()
+```
+
+Returned energies and fields are ordinary Python scalars and NumPy arrays.
+
+## Features
+
+- Spherical plane-wave basis with automatically derived FFT grids
+- GTH frozen-core pseudopotentials with local and non-local terms
+- LDA/SVWN5 and PBE exchange-correlation functionals
+- NumPy, SciPy, and pyFFTW CPU backends
+- Optional CuPy/CUDA execution
+- Typed energy, orbital, basis, and SCF results
+- Molecular-orbital and density contour plotting
 
 ## Example results
 
-Occupied molecular orbitals of CH4 (10x10x10 Bohr cell, 1e-1 tolerance)
-![Occupied molecular orbitals of CH4](img/orbs_ch4.png)
+Valence molecular orbitals of CO:
 
-Valence molecular orbitals of CO (10x10x10 Bohr cell, 1e-4 tolerance)
 ![Valence molecular orbitals of CO](img/orbs_co.png)
 
-## Computational details
+## License
 
-In contrast to localized orbital DFT, the basis functions in plane wave DFT are
-not 'spawned' by the atoms but by the unit cell. The user selects a spherical
-wavefunction energy cutoff, which determines the number of plane waves.
-`PyPWDFT` uses cubic unit cells and automatically selects FFT-friendly grid
-sizes. The density cutoff defaults to four times the wavefunction cutoff. This
-currently determines the common working FFT grid; the wavefunction and density
-grid sizes are tracked separately in preparation for a future dual-grid
-implementation. To get a proper
-description (expansion) of the electron density and of the atomic orbitals, the
-plane wave basis set needs to be relatively large. In comparison to localized
-orbital DFT, many more basis functions are needed and plane wave basis set host
-thousands (if not more) of basis functions. For this reason, the Hamiltonian
-matrix in the electronic structure problem is not solved in full, but only the
-part corresponding to its lowest eigenvalues (the occupied molecular orbitals)
-is solved. In `PyPWDFT`, the Implicitly Restarted Arnoldi Method as implemented
-in the [eigs function of Scipy](https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.linalg.eigs.html)
-is used for this purpose.
-
-Conventional plane wave DFT calculations can use a so-called frozen core
-approximation wherein the core electrons are not explicitly calculated but are
-represented by a pseudopotential. As the core electrons do not participate in
-chemical bonding, their wave function varies little by the chemical environment
-of the nuclei and one could therefore keep them fixed. `PyPWDFT` supports GTH
-pseudopotentials for frozen-core calculations while retaining the original
-all-electron Coulomb mode. Core electrons require many plane waves in
-all-electron mode, so the pseudopotential mode is generally more efficient for
-heavier elements.
-
-## Scaling properties
-
-Because `PyPWDFT` is a Python-based program, it will be (significantly) slower
-than commercial PW-DFT packages which use compiled languages such as C++ and/or
-FORTRAN. To assess the efficiency and scaling properties of `PyPWDFT`, consider
-the methane molecule inside a 10x10x10 Bohr unit cell as a probe system.
-In the graph below, the total energy and computation time as function of the
-number of grid points per Cartesian direction is shown. This historical grid
-scaling corresponds directly to increasing the plane-wave cutoff.
-
-![Scaling of computation as function of number of grid points](img/scaling_ch4.png)
-
-## Other interesting codes
-
-* The [SimpleDFT](https://gitlab.com/wangenau/simpledft) code of Wanja Schulze
-  is another Python-based plane wave DFT code. In contrast to `PyPWDFT`,
-  `SimpleDFT` uses a steepest descent method. Furthermore, `PyPWDFT` is built
-  upon the rather elegant alternative 
-  [algebraic formulation of Thomas Arias](https://arxiv.org/abs/cond-mat/9909130).
-* [PyDFT](https://github.com/ifilot/pydft) is a localized orbital DFT code
-  written in Python.
-* [PyQInt](https://github.com/ifilot/pyqint) is a Hartree-Fock based electronic
-  structure code, also written in Python.
+PyPWDFT is distributed under the GNU General Public License version 3 or later.

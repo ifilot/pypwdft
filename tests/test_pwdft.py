@@ -1,6 +1,7 @@
 import unittest
 import sys
 import os
+import importlib
 import numpy as np
 import pytest
 
@@ -8,7 +9,9 @@ import pytest
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # import the required libraries for the test
-from pypwdft import GTHPseudopotential, PeriodicSystem, PyPWDFT
+from pypwdft.gth import GTHPseudopotential
+from pypwdft.psystem import PeriodicSystem
+from pypwdft.pypwdft import PyPWDFT
 
 class TestPeriodicUnitCell(unittest.TestCase):
 
@@ -26,6 +29,29 @@ class TestPeriodicUnitCell(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, 'did not converge'):
             PyPWDFT(s, fft='numpy').scf(maxiter=1)
+
+    def test_initial_arpack_vector_is_flat_for_multiple_bands(self):
+        solver_module = importlib.import_module("pypwdft.pypwdft")
+        system = PeriodicSystem(10, ecut=1)
+        system.add_atom(4.3, 5, 5, 1)
+        system.add_atom(5.7, 5, 5, 1)
+
+        class EigensolverReached(Exception):
+            pass
+
+        original_eigsh = solver_module.scipy.sparse.linalg.eigsh
+
+        def inspect_eigsh(operator, count, *, which, v0):
+            self.assertEqual(v0.shape, (operator.shape[0],))
+            self.assertEqual(count, 2)
+            raise EigensolverReached
+
+        solver_module.scipy.sparse.linalg.eigsh = inspect_eigsh
+        try:
+            with self.assertRaises(EigensolverReached):
+                PyPWDFT(system, fft="numpy").scf(nsol=2)
+        finally:
+            solver_module.scipy.sparse.linalg.eigsh = original_eigsh
 
     @pytest.mark.e2e
     def test_pwdft_ch4(self):
@@ -211,6 +237,27 @@ class TestPeriodicUnitCell(unittest.TestCase):
         orbe = [-1.63632198, -0.61984203, -0.35651651, -0.35649672,
                 -0.18413863, 0.02084852, 0.09183999]
         np.testing.assert_almost_equal(res['orbe'], orbe, decimal=4)
+
+
+def test_verbose_scf_prints_calculation_summary(capsys):
+    system = PeriodicSystem(10, ecut=1)
+    system.add_atom(4.3, 5, 5, 1)
+    system.add_atom(5.7, 5, 5, 1)
+
+    with pytest.raises(RuntimeError, match='did not converge'):
+        PyPWDFT(system, fft='numpy').scf(maxiter=1, verbose=True)
+
+    output = capsys.readouterr().out
+    assert "PyPWDFT self-consistent field calculation" in output
+    assert "FFT backend            : NumPy (CPU)" in output
+    assert (
+        "Cubic unit cell        : 10.000000 x 10.000000 x 10.000000 bohr"
+        in output
+    )
+    assert "Plane waves            :" in output
+    assert "Atom positions (bohr)" in output
+    assert "Z=1" in output
+    assert "SCF iterations" in output
 
 if __name__ == '__main__':
     unittest.main()

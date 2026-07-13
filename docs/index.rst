@@ -22,15 +22,15 @@ Features and scope
 ------------------
 
 * Unit cells are limited to cubes.
-* There are **no** pseudo-potentials, nor any :math:`\vec{k}`-point sampling outside of the
-  :math:`\Gamma`-point.
+* GTH frozen-core pseudopotentials with local and non-local terms.
+* Sampling is currently limited to the :math:`\Gamma`-point.
 * Lowest Kohn-Sham states are found using the Arnoldi iterative procedure.
 * Slater exchange functional
 * Vosko-Wilk-Nusair correlation functional (VWN5)
+* Perdew-Burke-Ernzerhof (PBE) exchange-correlation functional
 * Dualism: the same basis set is used to describe both the molecular orbitals
   as well as the electron density.
-* A :class:`pypwdft.SystemBuilder` class is used for quick generation of example
-  structures.
+* :class:`pypwdft.Structure` loads bundled molecules and XYZ structures.
 * The self-consistent field procedure allows for verbose (detailed output)
 * Variables and matrices relevant to the computation are accessible to the user
   such that they can follow the procedure.
@@ -43,30 +43,24 @@ for the methane molecule inside a 10x10x10 a.u. unit cell.
 
 .. code:: python
 
-   # import the required libraries for the test
-   from pypwdft import PyPWDFT, PeriodicSystem, MoleculeBuilder
-   import numpy as np
+   from pypwdft import PWDFT, Structure
 
    def main():
-      # create cubic periodic system with lattice size of 10 Bohr
-      ecut = 5    # wavefunction cutoff in Hartree
-      sz = 10
-      # construct CH4 molecule system via SystemBuilder
-      s = SystemBuilder().from_name('CH4', sz=sz, ecut=ecut)
-         
-      # construct calculator object
-      calculator = PyPWDFT(s)
-      
-      # perform self-consistent field procedure and store results in res object
-      res = calculator.scf(tol=1e-1, verbose=True)
+      structure = Structure.from_name("CH4", cell=10)
+      calculation = PWDFT(
+         structure,
+         cutoff=5,
+         xc="pbe",
+         pseudopotential="gth",
+      )
+      result = calculation.run(convergence=1e-4, verbosity=1)
+      result.plot_orbitals(plane="xz", save="ch4-orbitals.pdf")
 
    if __name__ == '__main__':
       main()
 
-The set of molecular orbitals obtained via the above calculation are shown
-below. The top row corresponds to the real part of the molecular orbitals, the
-middle row to the imaginary part and finally the bottom row corresponds to the
-electron density associated with each molecular orbital.
+The set of molecular orbitals obtained from a methane calculation is shown
+below.
 
 .. image:: _static/img/orbs_ch4.png
 

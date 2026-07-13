@@ -6,23 +6,52 @@ API
 
 .. automodule:: pypwdft
 
-    PeriodicSystem
-    ---
+    High-level API
+    --------------
 
-    .. autoclass:: PeriodicSystem
+    Structure
+    ~~~~~~~~~
+
+    .. autoclass:: Structure
         :members:
         :special-members: __init__
 
-    PyPWDFT
-    -------------
+    PWDFT
+    ~~~~~
 
-    .. autoclass:: PyPWDFT
+    .. autoclass:: PWDFT
         :members:
         :special-members: __init__
 
-    SystemBuilder
-    -------------
+    SCFSettings
+    ~~~~~~~~~~~
 
-    .. autoclass:: SystemBuilder
+    .. autoclass:: SCFSettings
         :members:
-        :special-members: __init__
+
+    DFTResult
+    ~~~~~~~~~
+
+    .. autoclass:: DFTResult
+        :members:
+
+    GTH configuration
+    ~~~~~~~~~~~~~~~~~
+
+    .. autoclass:: GTH
+        :members:
+
+    Result groups
+    ~~~~~~~~~~~~~
+
+    .. autoclass:: EnergyComponents
+        :members:
+
+    .. autoclass:: OrbitalSet
+        :members:
+
+    .. autoclass:: BasisInfo
+        :members:
+
+    .. autoclass:: SCFInfo
+        :members:

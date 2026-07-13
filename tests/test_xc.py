@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-from pypwdft import PeriodicSystem, PyPWDFT
+from pypwdft.psystem import PeriodicSystem
+from pypwdft.pypwdft import PyPWDFT
 
 
 def test_vwn5_correlation_reference_values():
