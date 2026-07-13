@@ -22,6 +22,7 @@ import pyfftw
 import timeit
 from scipy.sparse.linalg import LinearOperator
 import scipy.sparse.linalg
+from .mixing import DensityMixer
 from .psystem import PeriodicSystem
 
 
@@ -63,7 +64,8 @@ class PyPWDFT:
             raise ValueError('The pseudopotential belongs to another system.')
         
     def scf(self, tol:float=1e-5, nsol:int=None, verbose:bool=False,
-            density_tol:float=None, maxiter:int=100) -> dict:
+            density_tol:float=None, maxiter:int=100, mixing:str='pulay',
+            mixing_fraction:float=0.5, mixing_history:int=6) -> dict:
         """
         Perform self-consistent field procedure
 
@@ -75,6 +77,12 @@ class PyPWDFT:
                 criterion. Defaults to ``tol``.
             maxiter (int, optional): maximum number of SCF iterations.
                 Defaults to 100.
+            mixing (str, optional): density-mixing method, ``'pulay'`` or
+                ``'linear'``. Defaults to ``'pulay'``.
+            mixing_fraction (float, optional): damping applied to the density
+                residual. Defaults to 0.5.
+            mixing_history (int, optional): number of recent densities used by
+                Pulay mixing. Defaults to 6.
 
         Returns:
             dict: Dictionary containing system results
@@ -110,6 +118,14 @@ class PyPWDFT:
             xp, sparse_linalg = np, scipy.sparse.linalg
         self.__xp = xp
 
+        mixer = DensityMixer(
+            xp,
+            method=mixing,
+            fraction=mixing_fraction,
+            history=mixing_history,
+            target_mean=nelec / self.__s.get_omega(),
+        )
+
         k2_host = self.__s.get_pw_k2()      # PW vector lengths
         pw_mask_host = self.__s.get_pw_mask()
         k2 = xp.asarray(k2_host)
@@ -142,6 +158,9 @@ class PyPWDFT:
                 tol=tol,
                 density_tol=density_tol,
                 maxiter=maxiter,
+                mixing=mixer.method,
+                mixing_fraction=mixer.fraction,
+                mixing_history=mixer.history,
             )
 
         # construct initial search vector, this vector is kept consistent for
@@ -231,10 +250,6 @@ class PyPWDFT:
                 xp.sqrt(xp.mean((output_density - edens)**2))
             )
 
-            # set mixing factor to slowly introduce the new density to the
-            # old electron density
-            alpha = 0.3
-
             # Evaluate all density-dependent energy terms using the same
             # output density as the orbitals and kinetic energy.
             harpot = self.__calculate_hartree_potential(output_density, k2)
@@ -302,7 +317,7 @@ class PyPWDFT:
                 edens = output_density
                 break
 
-            edens = (1.0 - alpha) * edens + alpha * output_density
+            edens = mixer.update(edens, output_density)
 
         if not converged:
             raise RuntimeError(
@@ -389,12 +404,16 @@ class PyPWDFT:
             'pseudopotential': self.__pseudopotential,
             'functional': self.__functional,
             'fft': self.__fft,
+            'mixing': mixer.method,
+            'mixing_fraction': mixer.fraction,
+            'mixing_history': mixer.history,
         }
         
         return res
 
     def __print_calculation_summary(self, nelec, nocc, nsol, npw, tol,
-                                    density_tol, maxiter):
+                                    density_tol, maxiter, mixing,
+                                    mixing_fraction, mixing_history):
         """
         Print the calculation setup before the SCF iterations begin.
         """
@@ -475,6 +494,14 @@ class PyPWDFT:
             f"RMS(density) <= {density_tol:.3e}"
         )
         print(f"Maximum iterations     : {maxiter}")
+        if mixing == "pulay":
+            mixing_label = (
+                f"Pulay (fraction={mixing_fraction:g}, "
+                f"history={mixing_history})"
+            )
+        else:
+            mixing_label = f"Linear (fraction={mixing_fraction:g})"
+        print(f"Density mixing         : {mixing_label}")
         print(subsection)
         print("SCF iterations")
         print("Iter | Total energy (Ha) |       dE |       dn | Time (s)")

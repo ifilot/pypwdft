@@ -10,9 +10,14 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-import os
 import sys
-sys.path.insert(0, os.path.abspath('..'))
+from pathlib import Path
+
+# Import the package from this checkout so autodoc always reflects the source
+# being documented, irrespective of Sphinx's working directory or whether an
+# older PyPWDFT release is installed in the build environment.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 import sphinx_rtd_theme
 
 # -- Project information -----------------------------------------------------
@@ -33,6 +38,21 @@ extensions = [
     'sphinx_rtd_theme',
     'sphinx.ext.autodoc',
     'sphinx.ext.napoleon'
+]
+
+autodoc_default_options = {
+    'members': True,
+    'show-inheritance': True,
+}
+autodoc_typehints = 'description'
+
+# These runtime dependencies are not needed to inspect the public API, and
+# documentation builders commonly run without the compiled scientific stack.
+# Mocking them only during autodoc import keeps the reference sourced from the
+# real PyPWDFT modules without requiring a working numerical backend.
+autodoc_mock_imports = [
+    'mendeleev',
+    'pyfftw',
 ]
 
 suppress_warnings = ['autosectionlabel.*']

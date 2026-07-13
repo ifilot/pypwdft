@@ -109,6 +109,9 @@ Common settings can be passed directly to :meth:`pypwdft.PWDFT.run`:
         max_iterations=150,
         bands=8,
         verbosity=1,
+        mixing="pulay",
+        mixing_fraction=0.5,
+        mixing_history=6,
     )
 
 Reusable settings can be collected in :class:`pypwdft.SCFSettings`:
@@ -123,8 +126,16 @@ Reusable settings can be collected in :class:`pypwdft.SCFSettings`:
         max_iterations=150,
         bands=8,
         verbosity=1,
+        mixing="pulay",
+        mixing_fraction=0.5,
+        mixing_history=6,
     )
     result = calculation.run(settings)
+
+Pulay mixing is the default. It combines a short history of density residuals
+and normally converges faster than a fixed linear update. If an SCF calculation
+oscillates, first try a smaller ``mixing_fraction``, such as ``0.2``. For a
+plain damped update, select ``mixing="linear"``.
 
 Results
 -------
@@ -158,6 +169,9 @@ Results expose named, typed groups instead of abbreviated dictionary keys:
     result.scf.density_residual
     result.scf.elapsed_time
     result.scf.backend
+    result.scf.mixing
+    result.scf.mixing_fraction
+    result.scf.mixing_history
 
 Plotting
 --------

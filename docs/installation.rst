@@ -16,15 +16,6 @@ useful programs. Anaconda can be obtained `via this link
 	solution can be to create a separate environment for Anaconda. Please
 	consult the "Troubleshooting" section as seen below.
 
-Anaconda
---------
-
-Open a Anaconda command prompt and run the following command:
-
-.. code:: bash
-
-	conda install -c ifilot pypwdft mendeleev pyfftw
-
 PyPi
 ----
 

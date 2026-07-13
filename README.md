@@ -14,6 +14,16 @@ backend.
 > of the same name described by Yang et al. The code in this repository
 > predates that publication.
 
+## Features
+
+- Spherical plane-wave basis with automatically derived FFT grids
+- GTH frozen-core pseudopotentials with local and non-local terms
+- LDA/SVWN5 and PBE exchange-correlation functionals
+- NumPy, SciPy, and pyFFTW CPU backends
+- Optional CuPy/CUDA execution
+- Typed energy, orbital, basis, and SCF results
+- Molecular-orbital and density contour plotting
+
 ## Installation
 
 ```bash
@@ -114,11 +124,17 @@ settings = SCFSettings(
     max_iterations=150,
     bands=8,
     verbosity=1,
+    mixing="pulay",
+    mixing_fraction=0.5,
+    mixing_history=6,
 )
 result = calculation.run(settings)
 ```
 
-Settings can also be supplied directly to `run()`.
+Pulay mixing is the default and uses recent density residuals to accelerate
+self-consistency. Lower `mixing_fraction` if the SCF cycle oscillates, or use
+`mixing="linear"` for a conventional damped update. Settings can also be
+supplied directly to `run()`.
 
 ## Results
 
@@ -184,21 +200,15 @@ result = calculation.run()
 
 Returned energies and fields are ordinary Python scalars and NumPy arrays.
 
-## Features
-
-- Spherical plane-wave basis with automatically derived FFT grids
-- GTH frozen-core pseudopotentials with local and non-local terms
-- LDA/SVWN5 and PBE exchange-correlation functionals
-- NumPy, SciPy, and pyFFTW CPU backends
-- Optional CuPy/CUDA execution
-- Typed energy, orbital, basis, and SCF results
-- Molecular-orbital and density contour plotting
-
 ## Example results
 
-Valence molecular orbitals of CO:
+Valence molecular orbitals of CO and first unoccupied orbital:
 
 ![Valence molecular orbitals of CO](img/orbs_co.png)
+
+Valence molecular orbitals of benzene and first three unoccupied orbitals:
+
+![Valence molecular orbitals of CO](img/orbs_benzene.png)
 
 ## License
 

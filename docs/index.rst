@@ -1,14 +1,10 @@
 PyPWDFT: pure-python plane-wave density functional theory
 =========================================================
 
-.. image:: https://anaconda.org/ifilot/pypwdft/badges/version.svg
-   :target: https://anaconda.org/ifilot/pypwdft
 .. image:: https://img.shields.io/pypi/v/pypwdft?color=green
    :target: https://pypi.org/project/pypwdft/
 .. image:: https://github.com/ifilot/pypwdft/actions/workflows/build_pypi.yml/badge.svg
    :target: https://github.com/ifilot/pypwdft/actions/workflows/build_pypi.yml
-.. image:: https://github.com/ifilot/pypwdft/actions/workflows/build_conda.yml/badge.svg
-   :target: https://github.com/ifilot/pypwdft/actions/workflows/build_conda.yml
 .. image:: https://img.shields.io/badge/License-GPLv3-blue.svg
    :target: https://www.gnu.org/licenses/gpl-3.0
 
@@ -39,30 +35,41 @@ Example
 -------
 
 The code below will perform a plane-wave density functional theory calculation
-for the methane molecule inside a 10x10x10 a.u. unit cell.
+for carbon monoxide inside a 10x10x10 a.u. unit cell. Five occupied orbitals
+and the lowest unoccupied orbital are calculated.
 
 .. code:: python
 
    from pypwdft import PWDFT, Structure
 
    def main():
-      structure = Structure.from_name("CH4", cell=10)
+      structure = Structure.from_name("CO", cell=10)
       calculation = PWDFT(
          structure,
-         cutoff=5,
+         cutoff=40,
          xc="pbe",
          pseudopotential="gth",
       )
-      result = calculation.run(convergence=1e-4, verbosity=1)
-      result.plot_orbitals(plane="xz", save="ch4-orbitals.pdf")
+      result = calculation.run(
+         convergence=1e-4,
+         bands=6,
+         verbosity=1,
+      )
+      result.plot_orbitals(
+         occupied=False,
+         plane="xz",
+         columns=3,
+         save="co-orbitals.png",
+      )
 
    if __name__ == '__main__':
       main()
 
-The set of molecular orbitals obtained from a methane calculation is shown
+The resulting occupied and lowest unoccupied molecular orbitals are shown
 below.
 
-.. image:: _static/img/orbs_ch4.png
+.. image:: ../img/orbs_co.png
+   :alt: Molecular orbitals of carbon monoxide
 
 :program:`PyPWDFT` has been developed at the Eindhoven University of Technology,
 Netherlands. :program:`PyPWDFT` and its development are hosted on `Github

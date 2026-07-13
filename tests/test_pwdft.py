@@ -110,7 +110,7 @@ class TestPeriodicUnitCell(unittest.TestCase):
         # perform SCF calculation
         calculator = PyPWDFT(s, pseudopotential=GTHPseudopotential(s))
         res = calculator.scf(
-            tol=1e-4, density_tol=1e-3, nsol=7, verbose=False
+            tol=1e-6, density_tol=1e-6, nsol=7, verbose=False
         )
         
         # test total energy
@@ -118,8 +118,8 @@ class TestPeriodicUnitCell(unittest.TestCase):
                                        decimal=4)
         
         # test eigenvalues
-        orbe = [-1.63632198, -0.61984203, -0.35651651, -0.35649672,
-                -0.18413863, 0.02084852, 0.09183999]
+        orbe = [-1.63843684, -0.62127332, -0.35781872, -0.35781871,
+                -0.18488378, 0.02060324, 0.09112234]
         np.testing.assert_almost_equal(res['orbe'], orbe, decimal=4)
 
     @pytest.mark.e2e
@@ -154,7 +154,7 @@ class TestPeriodicUnitCell(unittest.TestCase):
         # perform SCF calculation
         calculator = PyPWDFT(s, pseudopotential=GTHPseudopotential(s))
         res = calculator.scf(
-            tol=1e-4, density_tol=1e-3, nsol=7, verbose=False
+            tol=1e-6, density_tol=1e-6, nsol=7, verbose=False
         )
         
         # test total energy
@@ -162,8 +162,8 @@ class TestPeriodicUnitCell(unittest.TestCase):
                                        decimal=4)
         
         # test eigenvalues
-        orbe = [-1.63632198, -0.61984203, -0.35651651, -0.35649672,
-                -0.18413863, 0.02084852, 0.09183999]
+        orbe = [-1.63843684, -0.62127332, -0.35781872, -0.35781871,
+                -0.18488378, 0.02060324, 0.09112234]
         np.testing.assert_almost_equal(res['orbe'], orbe, decimal=4)
 
     @pytest.mark.e2e
@@ -190,7 +190,7 @@ class TestPeriodicUnitCell(unittest.TestCase):
             s, fft='numpy', pseudopotential=GTHPseudopotential(s)
         )
         res = calculator.scf(
-            tol=1e-4, density_tol=1e-3, nsol=7, verbose=False
+            tol=1e-6, density_tol=1e-6, nsol=7, verbose=False
         )
         
         # test total energy
@@ -198,8 +198,8 @@ class TestPeriodicUnitCell(unittest.TestCase):
                                        decimal=4)
         
         # test eigenvalues
-        orbe = [-1.63632198, -0.61984203, -0.35651651, -0.35649672,
-                -0.18413863, 0.02084852, 0.09183999]
+        orbe = [-1.63843684, -0.62127332, -0.35781872, -0.35781871,
+                -0.18488378, 0.02060324, 0.09112234]
         np.testing.assert_almost_equal(res['orbe'], orbe, decimal=4)
     
     @pytest.mark.e2e
@@ -226,7 +226,7 @@ class TestPeriodicUnitCell(unittest.TestCase):
             s, fft='scipy', pseudopotential=GTHPseudopotential(s)
         )
         res = calculator.scf(
-            tol=1e-4, density_tol=1e-3, nsol=7, verbose=False
+            tol=1e-6, density_tol=1e-6, nsol=7, verbose=False
         )
         
         # test total energy
@@ -234,8 +234,8 @@ class TestPeriodicUnitCell(unittest.TestCase):
                                        decimal=4)
         
         # test eigenvalues
-        orbe = [-1.63632198, -0.61984203, -0.35651651, -0.35649672,
-                -0.18413863, 0.02084852, 0.09183999]
+        orbe = [-1.63843684, -0.62127332, -0.35781872, -0.35781871,
+                -0.18488378, 0.02060324, 0.09112234]
         np.testing.assert_almost_equal(res['orbe'], orbe, decimal=4)
 
 
@@ -257,6 +257,7 @@ def test_verbose_scf_prints_calculation_summary(capsys):
     assert "Plane waves            :" in output
     assert "Atom positions (bohr)" in output
     assert "Z=1" in output
+    assert "Density mixing         : Pulay (fraction=0.5, history=6)" in output
     assert "SCF iterations" in output
 
 if __name__ == '__main__':

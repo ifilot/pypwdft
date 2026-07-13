@@ -37,6 +37,9 @@ def solver_result(norb=1, npts=5):
         "density_residual": 3e-7,
         "ttime": 1.5,
         "fft": "numpy",
+        "mixing": "pulay",
+        "mixing_fraction": 0.5,
+        "mixing_history": 6,
         "ecut": 2.0,
         "density_ecut": 8.0,
         "npw": 33,
@@ -80,6 +83,9 @@ def test_pwdft_builds_matching_gth_and_translates_run_options(monkeypatch):
         max_iterations=20,
         bands=1,
         verbosity=1,
+        mixing="linear",
+        mixing_fraction=0.25,
+        mixing_history=4,
     )
 
     assert calculation.ionic_model == "gth-pbe"
@@ -89,6 +95,9 @@ def test_pwdft_builds_matching_gth_and_translates_run_options(monkeypatch):
         "maxiter": 20,
         "nsol": 1,
         "verbose": True,
+        "mixing": "linear",
+        "mixing_fraction": 0.25,
+        "mixing_history": 4,
     }
     assert isinstance(result, DFTResult)
     assert result.energy.total == -1.25
@@ -96,6 +105,7 @@ def test_pwdft_builds_matching_gth_and_translates_run_options(monkeypatch):
     assert result.orbitals.energies == pytest.approx([-0.5])
     assert result.basis.plane_waves == 33
     assert result.scf.energy_residual == 2e-7
+    assert result.scf.mixing == "pulay"
     assert result.converged
     assert result.iterations == 7
     with pytest.raises(TypeError):
@@ -118,6 +128,18 @@ def test_settings_can_be_passed_to_run(monkeypatch):
 
     assert captured["tol"] == 1e-4
     assert captured["maxiter"] == 12
+    assert captured["mixing"] == "pulay"
+    assert captured["mixing_fraction"] == 0.5
+    assert captured["mixing_history"] == 6
+
+
+def test_invalid_mixing_settings_are_rejected():
+    with pytest.raises(ValueError, match="mixing must"):
+        SCFSettings(mixing="broyden")
+    with pytest.raises(ValueError, match="mixing_fraction"):
+        SCFSettings(mixing_fraction=0)
+    with pytest.raises(ValueError, match="mixing_history"):
+        SCFSettings(mixing_history=1)
 
 
 def test_result_owns_the_common_plotting_workflow(tmp_path):

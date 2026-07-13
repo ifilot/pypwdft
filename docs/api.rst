@@ -4,54 +4,59 @@
 API
 ===
 
-.. automodule:: pypwdft
+This reference is generated directly from the public classes exported by
+:mod:`pypwdft`. The :doc:`usage` chapter provides complete calculation
+examples.
 
-    High-level API
-    --------------
+.. currentmodule:: pypwdft
 
-    Structure
-    ~~~~~~~~~
+Calculation setup
+-----------------
 
-    .. autoclass:: Structure
-        :members:
-        :special-members: __init__
+Structure
+~~~~~~~~~
 
-    PWDFT
-    ~~~~~
+.. autoclass:: pypwdft.Structure
 
-    .. autoclass:: PWDFT
-        :members:
-        :special-members: __init__
+PWDFT
+~~~~~
 
-    SCFSettings
-    ~~~~~~~~~~~
+.. autoclass:: pypwdft.PWDFT
 
-    .. autoclass:: SCFSettings
-        :members:
+SCFSettings
+~~~~~~~~~~~
 
-    DFTResult
-    ~~~~~~~~~
+.. autoclass:: pypwdft.SCFSettings
 
-    .. autoclass:: DFTResult
-        :members:
+GTH configuration
+~~~~~~~~~~~~~~~~~
 
-    GTH configuration
-    ~~~~~~~~~~~~~~~~~
+.. autoclass:: pypwdft.GTH
 
-    .. autoclass:: GTH
-        :members:
+Calculation results
+-------------------
 
-    Result groups
-    ~~~~~~~~~~~~~
+DFTResult
+~~~~~~~~~
 
-    .. autoclass:: EnergyComponents
-        :members:
+.. autoclass:: pypwdft.DFTResult
 
-    .. autoclass:: OrbitalSet
-        :members:
+EnergyComponents
+~~~~~~~~~~~~~~~~
 
-    .. autoclass:: BasisInfo
-        :members:
+.. autoclass:: pypwdft.EnergyComponents
 
-    .. autoclass:: SCFInfo
-        :members:
+OrbitalSet
+~~~~~~~~~~
+
+.. autoclass:: pypwdft.OrbitalSet
+
+BasisInfo
+~~~~~~~~~
+
+.. autoclass:: pypwdft.BasisInfo
+
+SCFInfo
+~~~~~~~
+
+.. autoclass:: pypwdft.SCFInfo

@@ -196,13 +196,36 @@ class GTH:
 
 @dataclass(frozen=True)
 class SCFSettings:
-    """Convergence and eigensolver settings for an SCF calculation."""
+    """Convergence, eigensolver, and density-mixing settings.
+
+    Parameters
+    ----------
+    convergence : float, optional
+        Total-energy convergence threshold in Hartree.
+    density_convergence : float, optional
+        RMS density-residual threshold. Defaults to ``convergence``.
+    max_iterations : int, optional
+        Maximum number of SCF iterations.
+    bands : int, optional
+        Number of orbitals to calculate. Occupied orbitals are always included.
+    verbosity : int, optional
+        Set to a non-zero value to print the calculation and iteration tables.
+    mixing : {'pulay', 'linear'}, optional
+        Density-mixing algorithm. Pulay is the default.
+    mixing_fraction : float, optional
+        Damping applied to each density residual. Must be in ``(0, 1]``.
+    mixing_history : int, optional
+        Number of recent residuals retained by Pulay mixing.
+    """
 
     convergence: float = 1e-5
     density_convergence: float | None = None
     max_iterations: int = 100
     bands: int | None = None
     verbosity: int = 0
+    mixing: str = "pulay"
+    mixing_fraction: float = 0.5
+    mixing_history: int = 6
 
     def __post_init__(self):
         if self.convergence <= 0:
@@ -215,6 +238,17 @@ class SCFSettings:
             raise ValueError("bands must be positive.")
         if not isinstance(self.verbosity, (bool, int, np.integer)):
             raise ValueError("verbosity must be an integer.")
+        mixing = str(self.mixing).lower()
+        if mixing not in {"linear", "pulay"}:
+            raise ValueError("mixing must be 'linear' or 'pulay'.")
+        object.__setattr__(self, "mixing", mixing)
+        if not 0 < self.mixing_fraction <= 1:
+            raise ValueError("mixing_fraction must be in the interval (0, 1].")
+        if (
+            not isinstance(self.mixing_history, (int, np.integer))
+            or self.mixing_history < 2
+        ):
+            raise ValueError("mixing_history must be an integer of at least 2.")
 
 #-------------------------------------------------------------------------------
 
@@ -269,6 +303,9 @@ class SCFInfo:
     density_residual: float
     elapsed_time: float
     backend: str
+    mixing: str
+    mixing_fraction: float
+    mixing_history: int
 
 #-------------------------------------------------------------------------------
 
@@ -307,6 +344,9 @@ class DFTResult:
             density_residual=float(data["density_residual"]),
             elapsed_time=float(data["ttime"]),
             backend=str(data["fft"]),
+            mixing=str(data["mixing"]),
+            mixing_fraction=float(data["mixing_fraction"]),
+            mixing_history=int(data["mixing_history"]),
         )
 
     @property
@@ -488,9 +528,15 @@ class PWDFT:
         max_iterations=None,
         bands=None,
         verbosity=None,
+        mixing=None,
+        mixing_fraction=None,
+        mixing_history=None,
     ):
-        """
-        Run the SCF calculation and return a :class:`DFTResult`.
+        """Run the SCF calculation and return a :class:`DFTResult`.
+
+        Keyword arguments override the corresponding values in ``settings``.
+        In most calculations the default Pulay mixer is preferable to linear
+        mixing. If convergence oscillates, reduce ``mixing_fraction``.
         """
         # validate settings and override with any explicit arguments
         if settings is None:
@@ -505,6 +551,9 @@ class PWDFT:
             "max_iterations": max_iterations,
             "bands": bands,
             "verbosity": verbosity,
+            "mixing": mixing,
+            "mixing_fraction": mixing_fraction,
+            "mixing_history": mixing_history,
         }
         settings = replace(
             settings,
@@ -516,6 +565,9 @@ class PWDFT:
             maxiter=settings.max_iterations,
             nsol=settings.bands,
             verbose=bool(settings.verbosity),
+            mixing=settings.mixing,
+            mixing_fraction=settings.mixing_fraction,
+            mixing_history=settings.mixing_history,
         )
         nelectrons = (
             self._ionic_model.nelec
