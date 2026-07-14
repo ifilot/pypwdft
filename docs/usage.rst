@@ -4,32 +4,6 @@
 Usage
 =====
 
-Quick start
------------
-
-A calculation consists of a :class:`pypwdft.Structure`, a
-:class:`pypwdft.PWDFT` configuration, and the resulting
-:class:`pypwdft.DFTResult`:
-
-.. code:: python
-
-    from pypwdft import PWDFT, Structure
-
-    structure = Structure.from_name("H2", cell=10)
-    calculation = PWDFT(
-        structure,
-        cutoff=40,
-        xc="pbe",
-        pseudopotential="gth",
-    )
-    result = calculation.run(convergence=1e-6, verbosity=1)
-
-    print(result.energy.total)
-    result.plot_orbitals(plane="xz", save="h2-orbitals.pdf")
-
-PyPWDFT uses atomic units: distances are in bohr and energies are in Hartree
-unless another unit is explicitly selected.
-
 Structures
 ----------
 
@@ -203,11 +177,13 @@ Specific orbitals and the converged density can also be selected:
     result.plot_orbitals(indices=[0, 2, 4], plane="xy")
     result.plot_density(plane="xz", save="density.pdf")
 
+.. _gpu_calculations:
+
 GPU calculations
 ----------------
 
-Install the CuPy package compatible with the local CUDA runtime, then request
-the CUDA device explicitly:
+Follow the :ref:`gpu_installation` instructions to install CuPy for the
+available CUDA version, then request the CUDA device explicitly:
 
 .. code:: python
 

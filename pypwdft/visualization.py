@@ -54,7 +54,9 @@ class ContourPlotter:
             ``'auto'`` selects the central plane with the largest norm for
             each orbital, avoiding accidental plots of nodal planes.
         sz : float, optional
-            Half-width of the plot in bohr. Defaults to half the cell edge.
+            Half-width of the plot about the centre of the cell, in bohr.
+            Defaults to half the cell edge, displaying coordinates from zero
+            to the cell edge.
         nrows, ncols : int, optional
             Shape of the subplot grid. ``ncols`` defaults to the number of
             columns needed to show all orbitals.
@@ -185,10 +187,12 @@ class ContourPlotter:
             )
 
             axis.set_aspect("equal", adjustable="box")
-            axis.set_xlim(-sz, sz)
-            axis.set_ylim(-sz, sz)
-            axis.set_xticks(np.linspace(-sz, sz, ngrid))
-            axis.set_yticks(np.linspace(-sz, sz, ngrid))
+            lower = cell_size / 2.0 - sz
+            upper = cell_size / 2.0 + sz
+            axis.set_xlim(lower, upper)
+            axis.set_ylim(lower, upper)
+            axis.set_xticks(np.linspace(lower, upper, ngrid))
+            axis.set_yticks(np.linspace(lower, upper, ngrid))
             axis.tick_params(axis="x", labelrotation=tick_rotation)
             axis.grid(linestyle="--", alpha=0.5)
             axis.set_xlabel(xlabel)
@@ -235,24 +239,23 @@ class ContourPlotter:
 
     @staticmethod
     def _prepare_central_plane(field, sz, cell_size):
-        """Return a centred field with coordinates at the actual FFT nodes.
+        """Return a central crop using the fixed unit-cell coordinates.
 
-        FFT samples cover ``[-L/2, L/2)``.  The positive cell boundary is
-        therefore added as a periodic copy of the negative boundary.  Exact
-        crop boundaries are interpolated when ``sz`` does not coincide with
-        an FFT node.
+        FFT samples cover ``[0, L)``. The cell boundary at ``L`` is added as a
+        periodic copy of the sample at zero. Exact crop boundaries are
+        interpolated when ``L/2 +/- sz`` does not coincide with an FFT node.
         """
         npts = field.shape[0]
-        fft_coordinates = (
-            np.arange(npts, dtype=float) / npts - 0.5
-        ) * cell_size
-        periodic_coordinates = np.append(fft_coordinates, cell_size / 2.0)
+        fft_coordinates = np.arange(npts, dtype=float) / npts * cell_size
+        periodic_coordinates = np.append(fft_coordinates, cell_size)
         periodic_field = np.pad(field, ((0, 1), (0, 1)), mode="wrap")
 
+        lower = cell_size / 2.0 - sz
+        upper = cell_size / 2.0 + sz
         interior = periodic_coordinates[
-            (periodic_coordinates > -sz) & (periodic_coordinates < sz)
+            (periodic_coordinates > lower) & (periodic_coordinates < upper)
         ]
-        coordinates = np.concatenate(([-sz], interior, [sz]))
+        coordinates = np.concatenate(([lower], interior, [upper]))
         coordinates = np.unique(coordinates)
         if len(coordinates) < 2:
             raise ValueError("sz is too small for the real-space FFT grid.")

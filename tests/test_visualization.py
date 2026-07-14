@@ -42,12 +42,14 @@ def test_contour_plotter_builds_plane_specific_grid(contour_data, tmp_path):
     assert axes[0, 0].get_xlabel() == "$x$ [a.u.]"
     assert axes[0, 1].get_ylabel() == "$z$ [a.u.]"
     assert axes[1, 0].get_xlabel() == "$y$ [a.u.]"
+    assert axes[0, 0].get_xlim() == pytest.approx((0.0, 8.0))
+    assert axes[0, 0].get_ylim() == pytest.approx((0.0, 8.0))
     assert axes[0, 0].get_title() == "x (-0.5000 Ht)"
     assert output.is_file()
     plt.close(figure)
 
 
-def test_fft_node_at_cell_centre_is_plotted_at_zero():
+def test_fft_node_at_cell_centre_keeps_fixed_unit_cell_coordinate():
     field = np.zeros((30, 30))
     field[15, 15] = 1.0
 
@@ -56,9 +58,9 @@ def test_fft_node_at_cell_centre_is_plotted_at_zero():
     )
 
     maximum = np.unravel_index(np.argmax(plotted), plotted.shape)
-    assert coordinates[maximum[0]] == pytest.approx(0.0)
-    assert coordinates[maximum[1]] == pytest.approx(0.0)
-    assert coordinates[[0, -1]] == pytest.approx([-5.0, 5.0])
+    assert coordinates[maximum[0]] == pytest.approx(5.0)
+    assert coordinates[maximum[1]] == pytest.approx(5.0)
+    assert coordinates[[0, -1]] == pytest.approx([0.0, 10.0])
     assert plotted[0] == pytest.approx(plotted[-1])
     assert plotted[:, 0] == pytest.approx(plotted[:, -1])
 

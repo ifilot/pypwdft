@@ -82,6 +82,7 @@ requests are ideally submitted via the `github issue tracker
    :caption: Contents:
 
    installation
+   getting_started
    background
    usage
    api
