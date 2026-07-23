@@ -1,0 +1,1232 @@
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[a4paper,margin=1.65cm,columnsep=0.65cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,mathtools,bm}
+\usepackage{booktabs,array}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage[hidelinks]{hyperref}
+\usepackage[nameinlink,noabbrev]{cleveref}
+
+\definecolor{codeblue}{RGB}{25,70,120}
+\definecolor{codegray}{RGB}{245,246,248}
+\definecolor{rulegray}{RGB}{205,210,216}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=codeblue,
+  urlcolor=codeblue,
+  citecolor=codeblue
+}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{codegray},
+  frame=single,
+  rulecolor=\color{rulegray},
+  columns=fullflexible,
+  breaklines=true,
+  keepspaces=true,
+  showstringspaces=false,
+  xleftmargin=2pt,
+  xrightmargin=2pt
+}
+\setlist{nosep,leftmargin=*}
+\setlength{\parindent}{1em}
+\setlength{\parskip}{0pt}
+\setlength{\abovedisplayskip}{5pt plus 2pt minus 2pt}
+\setlength{\belowdisplayskip}{5pt plus 2pt minus 2pt}
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\floatsep}{7pt plus 2pt minus 2pt}
+\setlength{\intextsep}{7pt plus 2pt minus 2pt}
+\emergencystretch=1.5em
+\raggedbottom
+
+\newcommand{\ii}{\mathrm{i}}
+\newcommand{\e}{\mathrm{e}}
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\vloc}{V_{\mathrm{loc}}}
+\newcommand{\vnl}{\widehat V_{\mathrm{nl}}}
+\newcommand{\zion}{Z_{\mathrm{ion}}}
+\newcommand{\gvec}{\mathbf G}
+\newcommand{\rvec}{\mathbf r}
+\newcommand{\Rvec}{\mathbf R}
+\newcommand{\kvec}{\mathbf k}
+\newcommand{\code}[1]{\texttt{#1}}
+\DeclareMathOperator{\erf}{erf}
+\DeclareMathOperator{\erfc}{erfc}
+
+\title{\textbf{Pseudopotentials from First Principles to PyPWDFT}\\
+\large A beginner's mathematical and code-level guide to the GTH implementation}
+\author{Repository-specific technical note}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This note explains why pseudopotentials are used, what information they
+preserve, and how the separable Goedecker--Teter--Hutter (GTH)
+pseudopotential in PyPWDFT is evaluated.  It begins with the all-electron
+Kohn--Sham problem and develops the frozen-core, norm-conserving, local, and
+non-local ideas before following the implementation from a parameter file to
+the Hamiltonian and total energy.  The conventions and array shapes are those
+of the current repository, so the final sections can be read beside
+\path{pypwdft/gth.py}, \path{pypwdft/pypwdft.py}, and
+\path{pypwdft/psystem.py}.
+\end{abstract}
+
+\section{The one-sentence idea}
+
+A pseudopotential replaces the nuclear Coulomb field \emph{and} the chemically
+inactive core electrons by a smoother effective ion that is designed to make
+the remaining valence electrons behave like the all-electron valence
+electrons outside the core region.
+
+Three qualifications matter:
+\begin{enumerate}
+  \item It is not merely a softened Coulomb singularity.  It must reproduce
+  angular-momentum-dependent valence scattering.
+  \item It does not approximate every all-electron observable near a nucleus.
+  Its purpose is accurate valence energetics and wavefunctions in the region
+  relevant to bonding.
+  \item It is part of the physical model.  A parameter set is tied to a
+  valence partition and normally to an exchange--correlation (XC)
+  approximation.
+\end{enumerate}
+
+\section{Where the difficulty comes from}
+
+\subsection{The all-electron Kohn--Sham equation}
+
+In atomic units (\(\hbar=m_e=e=4\pi\epsilon_0=1\)), a spin-unpolarized
+Kohn--Sham orbital obeys
+\begin{align}
+\widehat H_{\mathrm{KS}}[\rho]
+={}&-\frac{1}{2}\nabla^2+V_{\mathrm{nuc}}(\rvec)\nonumber\\
+&+V_{\mathrm H}[\rho](\rvec)
++V_{\mathrm{xc}}[\rho](\rvec),\nonumber\\
+\widehat H_{\mathrm{KS}}[\rho]\psi_n(\rvec)
+={}&\epsilon_n\psi_n(\rvec).
+\label{eq:ks-ae}
+\end{align}
+where
+\begin{equation}
+V_{\mathrm{nuc}}(\rvec)
+=-\sum_a\frac{Z_a}{|\rvec-\Rvec_a|}.
+\end{equation}
+For the closed-shell implementation in this repository,
+\begin{equation}
+\rho(\rvec)=2\sum_{n=1}^{N_{\mathrm{occ}}}
+|\psi_n(\rvec)|^2.
+\end{equation}
+The factor two follows from the one-particle density.  Each spatial orbital
+has an up-spin and a down-spin copy, both with the same spatial probability:
+\begin{align}
+\rho(\rvec)
+&=\sum_{n,\sigma}|\psi_n(\rvec)\chi_\sigma|^2\nonumber\\
+&=\sum_n|\psi_n(\rvec)|^2
+\underbrace{\sum_{\sigma}\|\chi_\sigma\|^2}_{2}.
+\end{align}
+
+The nuclear potential diverges as \(-Z_a/r\).  Core orbitals therefore vary
+rapidly.  Valence orbitals also acquire rapid oscillations near a nucleus
+because they must be orthogonal to the occupied core orbitals.  Both effects
+require large reciprocal vectors.
+
+\subsection{Why this is especially expensive in plane waves}
+
+At the \(\Gamma\) point, PyPWDFT expands an orbital as
+\begin{equation}
+\psi_n(\rvec)=\frac{1}{\sqrt{\Omega}}
+\sum_{\gvec\in\mathcal B}c_{\gvec n}\e^{\ii\gvec\cdot\rvec},
+\qquad
+\sum_{\gvec}|c_{\gvec n}|^2=1,
+\label{eq:pw-expansion}
+\end{equation}
+where \(\Omega\) is the cell volume.  Its spherical basis is
+\begin{equation}
+\mathcal B=
+\left\{\gvec:\frac{|\gvec|^2}{2}\le E_{\mathrm{cut}}\right\}.
+\label{eq:cutoff}
+\end{equation}
+The normalization in \cref{eq:pw-expansion} is not an assumption about the
+coefficients.  Periodic plane waves satisfy
+\begin{equation}
+\frac1\Omega\int_\Omega
+\e^{\ii(\gvec'-\gvec)\cdot\rvec}\dd^3r
+=\delta_{\gvec,\gvec'},
+\end{equation}
+so substituting the expansion into
+\(\int_\Omega|\psi_n|^2\dd^3r=1\) leaves
+\(\sum_\gvec|c_{\gvec n}|^2=1\).
+
+Fine real-space features need large \(|\gvec|\), hence a large cutoff and many
+plane waves.  The number of basis functions grows approximately as
+\begin{equation}
+N_{\mathrm{PW}}\sim
+\frac{\Omega}{6\pi^2}(2E_{\mathrm{cut}})^{3/2}.
+\end{equation}
+To see this estimate, one reciprocal-lattice point occupies volume
+\((2\pi)^3/\Omega\) in \(\gvec\)-space.  The cutoff keeps a sphere of radius
+\(G_{\max}=\sqrt{2E_{\mathrm{cut}}}\); hence
+\begin{equation}
+N_{\mathrm{PW}}\approx
+\frac{(4\pi/3)G_{\max}^3}{(2\pi)^3/\Omega}
+=\frac{\Omega G_{\max}^3}{6\pi^2}.
+\end{equation}
+Surface discreteness makes this an asymptotic count rather than an exact one.
+Removing core oscillations can therefore save much more than the cost of
+removing a few electrons: it lowers the basis size and every repeated
+Hamiltonian application.
+
+\section{From an atom to a pseudopotential}
+
+\subsection{Frozen core}
+
+Choose a division
+\begin{equation}
+Z= N_{\mathrm{core}}+\zion.
+\end{equation}
+Only \(\zion\) valence electrons per neutral atom are treated explicitly.
+The nucleus plus \(N_{\mathrm{core}}\) frozen electrons becomes an ion of
+charge \(+\zion\).  For carbon's bundled \code{C-q4} file,
+\(Z=6\), \(N_{\mathrm{core}}=2\), and \(\zion=4\).
+
+``Frozen'' means that core relaxation and explicit core--valence correlation
+are not solved during the calculation.  Their mean effect is folded into the
+pseudopotential parameters.
+
+\subsection{Pseudo-wavefunctions and matching}
+
+For an isolated reference atom, write a radial orbital as
+\(\psi_{nlm}(\rvec)=R_{nl}(r)Y_{lm}(\hat{\rvec})\).  A
+norm-conserving construction replaces the rapidly varying all-electron radial
+function by a smooth pseudo radial function inside a chosen core radius
+\(r_c^l\), while imposing conditions such as
+\begin{align}
+\widetilde R_{nl}(r)&=R_{nl}^{\mathrm{AE}}(r),
+&&r\ge r_c^l,\\
+\widetilde\epsilon_{nl}&=\epsilon_{nl}^{\mathrm{AE}},\\
+\int_0^{r_c^l}|\widetilde R_{nl}(r)|^2r^2\dd r
+&=
+\int_0^{r_c^l}|R_{nl}^{\mathrm{AE}}(r)|^2r^2\dd r.
+\label{eq:norm-conservation}
+\end{align}
+The last condition is \emph{norm conservation}.  Together with eigenvalue and
+tail matching, it greatly improves the reproduction of scattering over an
+energy range near the reference state.  In practical GTH generation,
+parameters are optimized against atomic eigenvalues, charge distributions,
+and related reference information.  PyPWDFT does not generate these
+parameters; it reads an already generated potential.
+
+\paragraph{Why does the norm help scattering?}
+Let \(u_E(r)=rR_{El}(r)\) solve the radial equation and let a dot denote
+\(\partial/\partial E\).  Subtract the energy derivative of that equation
+from the original equation multiplied by \(\dot u_E\).  One integration by
+parts gives
+\begin{equation}
+\int_0^{r_c}u_E(r)^2\dd r
+=-\frac12u_E(r_c)^2
+\frac{\partial}{\partial E}
+\left[\frac{u_E'(r_c)}{u_E(r_c)}\right].
+\label{eq:norm-logderivative}
+\end{equation}
+The ratio \(u_E'/u_E\) at \(r_c\) is the logarithmic derivative that connects
+the interior solution to the exterior scattering solution.  If the
+all-electron and pseudo functions have the same value, slope, eigenvalue, and
+interior norm, \cref{eq:norm-logderivative} also makes their logarithmic
+derivatives change identically to first order in energy.  That is the small
+mathematical bridge from norm conservation to improved transferability.
+
+\subsection{Transferability}
+
+A potential generated from one atomic configuration is later used in
+molecules and solids.  This is the transferability assumption.  It works when
+the frozen core remains chemically inert and the chosen reference data cover
+the relevant valence physics.  It can fail for unusual oxidation states,
+extreme pressure, core spectroscopy, or properties strongly dependent on
+near-nuclear density.  Selecting more explicit valence electrons---for
+example a \code{q13} rather than \code{q3} potential for Ga---usually improves
+the accessible physics but increases cost and often requires a higher cutoff.
+
+\section{Why a non-local operator is needed}
+
+Valence \(s,p,d,\ldots\) states penetrate the core differently.  One purely
+local radial function \(V(r)\) generally cannot reproduce all their scattering
+properties at once.  A conceptual semi-local form is
+\begin{equation}
+\widehat V_{\mathrm{SL}}
+=\sum_{l,m}|Y_{lm}\rangle V_l(r)\langle Y_{lm}|,
+\end{equation}
+which explicitly lets each angular momentum see a different radial
+interaction.  Such an operator is \emph{non-local}: its action at \(\rvec\)
+depends on angular projections of the wavefunction, not only on the value
+\(\psi(\rvec)\).
+
+Separable forms rewrite this dependence using a small number of localized
+projectors.  For ion \(a\), GTH uses
+\begin{equation}
+\vnl^{(a)}
+=\sum_l\sum_{m=-l}^{l}\sum_{i,j=1}^{n_l}
+|p^{a}_{ilm}\rangle h^l_{ij}
+\langle p^{a}_{jlm}|.
+\label{eq:vnl}
+\end{equation}
+The \(i,j\) indices enumerate a few radial projectors for the same \(l\);
+\(h^l\) is a small real symmetric coupling matrix.  Acting on an orbital,
+\begin{equation}
+\vnl^{(a)}|\psi\rangle
+=\sum_{lmij}|p^{a}_{ilm}\rangle h^l_{ij}
+\underbrace{\langle p^{a}_{jlm}|\psi\rangle}_{\text{one scalar overlap}}.
+\label{eq:vnl-action}
+\end{equation}
+This low-rank structure is the central computational advantage.
+
+\section{The GTH analytic form}
+
+GTH means Goedecker--Teter--Hutter.  ``Dual-space Gaussian'' means that the
+local smoothing functions and non-local projectors are Gaussian times
+polynomials.  They are localized and smooth in real space, while their
+Fourier transforms are also analytic Gaussian-polynomial expressions.  That
+is an unusually good match to a plane-wave code.
+
+\subsection{Local part in real space}
+
+For one species at the origin, the GTH local potential is
+\begin{align}
+\vloc(r)
+={}&-\frac{\zion}{r}
+\erf\left(\frac{r}{\sqrt{2}\,r_{\mathrm{loc}}}\right)
+\nonumber\\
+&+\e^{-x^2/2}
+\left(C_1+C_2x^2+C_3x^4+C_4x^6\right),
+\nonumber\\[-2pt]
+&\hspace{1em}x=\frac{r}{r_{\mathrm{loc}}}.
+\label{eq:vloc-real}
+\end{align}
+Far from the ion, \(\erf(\cdot)\to1\), the Gaussian term vanishes, and
+\(\vloc(r)\to-\zion/r\), as required.  At the origin,
+\(\erf(r/\sqrt{2}r_{\mathrm{loc}})/r\) has a finite limit, so the Coulomb
+singularity has disappeared.
+
+That finite limit follows directly from
+\(\erf z=2(z-z^3/3+\cdots)/\sqrt\pi\):
+\begin{equation}
+-\frac{\zion}{r}
+\erf\left(\frac{r}{\sqrt2r_{\mathrm{loc}}}\right)
+=-\zion\sqrt{\frac2\pi}\frac1{r_{\mathrm{loc}}}+O(r^2).
+\end{equation}
+Therefore
+\begin{equation}
+V_{\mathrm{loc}}(0)=
+-\zion\sqrt{\frac2\pi}\frac1{r_{\mathrm{loc}}}+C_1,
+\end{equation}
+which makes the contrast with the all-electron \(-Z/r\) divergence explicit.
+
+The five local parameters are \(r_{\mathrm{loc}}\) and up to four \(C_i\).
+Unused coefficients are zero-filled by the parser.
+
+\subsection{Local part in reciprocal space}
+
+Use the continuous transform convention
+\begin{align}
+\widetilde f(\gvec)
+&=\int_{\mathbb R^3}f(\rvec)\e^{-\ii\gvec\cdot\rvec}\dd^3r,\\
+f(\rvec)
+&=\frac{1}{\Omega}\sum_{\gvec}
+\widetilde f(\gvec)\e^{\ii\gvec\cdot\rvec}.
+\label{eq:fourier-convention}
+\end{align}
+With \(u=r_{\mathrm{loc}}^2G^2\), \(G=|\gvec|\), the analytic transform of
+\cref{eq:vloc-real} for \(G\ne0\) is
+\begin{align}
+\widetilde V_{\mathrm{loc}}(G)
+={}&-\frac{4\pi\zion}{G^2}\e^{-u/2}
+\nonumber\\
+&+(2\pi)^{3/2}r_{\mathrm{loc}}^3\e^{-u/2}
+\Big[
+C_1+C_2(3-u)
+\nonumber\\
+&\quad+C_3(15-10u+u^2)
+\nonumber\\
+&\quad+C_4(105-105u+21u^2-u^3)
+\Big].
+\label{eq:vloc-fourier}
+\end{align}
+
+\paragraph{Deriving the Gaussian-polynomial terms.}
+Write \(\sigma=r_{\mathrm{loc}}\).  The three-dimensional Gaussian transform
+factorizes into three elementary one-dimensional integrals:
+\begin{align}
+F_0(G)
+&=\prod_{\alpha=x,y,z}
+\int_{-\infty}^{\infty}
+\e^{-r_\alpha^2/(2\sigma^2)}
+\e^{-\ii G_\alpha r_\alpha}\dd r_\alpha\nonumber\\
+&=(2\pi)^{3/2}\sigma^3\e^{-\sigma^2G^2/2}.
+\end{align}
+Since
+\(-\nabla_{\gvec}^2\e^{-\ii\gvec\cdot\rvec}
+=r^2\e^{-\ii\gvec\cdot\rvec}\), multiplication by \(r^2\) before
+transforming is the same as applying \(-\nabla_\gvec^2\) afterwards.  Thus
+\begin{align}
+\mathcal F\{x^2\e^{-x^2/2}\}
+&=(3-u)F_0,\nonumber\\
+\mathcal F\{x^4\e^{-x^2/2}\}
+&=(15-10u+u^2)F_0,\nonumber\\
+\mathcal F\{x^6\e^{-x^2/2}\}
+&=(105-105u+21u^2-u^3)F_0,
+\end{align}
+where the powers of \(\sigma\) cancel because \(x=r/\sigma\).
+
+For the smoothed Coulomb term, regard
+\(-\zion\erf(r/\sqrt2\sigma)/r\) as the potential of a normalized Gaussian
+ionic charge.  Applying Poisson's equation and then Fourier transforming gives
+\begin{align}
+-G^2\widetilde V_{\mathrm C}(G)
+&=4\pi\zion\e^{-\sigma^2G^2/2},\nonumber\\
+\widetilde V_{\mathrm C}(G)
+&=-\frac{4\pi\zion}{G^2}\e^{-u/2}.
+\end{align}
+Adding this to the three polynomial transforms yields
+\cref{eq:vloc-fourier}, term by term.  Those same terms appear directly in
+\code{\_build\_local\_potential()}.
+
+\subsection{The special \texorpdfstring{\(G=0\)}{G=0} value}
+
+The periodic Coulomb zero mode is singular.  Expand the first term:
+\begin{equation}
+-\frac{4\pi\zion}{G^2}\e^{-r_{\mathrm{loc}}^2G^2/2}
+=-\frac{4\pi\zion}{G^2}
++2\pi\zion r_{\mathrm{loc}}^2+O(G^2).
+\end{equation}
+Here we used only
+\(\e^{-u/2}=1-u/2+O(u^2)\), with
+\(u=r_{\mathrm{loc}}^2G^2\).  The \(1/G^2\) multiplying the linear term in
+\(u\) cancels, leaving the finite second term.
+The code removes the divergent Coulomb component, which is handled through
+the neutral periodic electrostatic convention, but retains the finite limit.
+Consequently it assigns
+\begin{align}
+\widetilde V_{\mathrm{loc}}(0)
+={}&2\pi\zion r_{\mathrm{loc}}^2
+\nonumber\\
+&+(2\pi)^{3/2}r_{\mathrm{loc}}^3
+(C_1+3C_2+15C_3+105C_4).
+\label{eq:gzero}
+\end{align}
+Thus ``the \(G=0\) value is zero'' would be an incorrect description of this
+implementation.
+
+\subsection{Many ions and the structure factor}
+
+Translation by \(\Rvec_a\) contributes a phase.  In a conventional inverse
+transform one writes
+\begin{equation}
+\widetilde V_{\mathrm{ion}}(\gvec)
+=\sum_a\widetilde V_{\mathrm{loc}}^{s_a}(G)
+\e^{-\ii\gvec\cdot\Rvec_a},
+\label{eq:structure-factor}
+\end{equation}
+where \(s_a\) is the species.  PyPWDFT groups atoms by species, evaluates a
+species structure factor, and transforms once:
+\begin{equation}
+S_s(\gvec)=\sum_{a:s_a=s}\e^{+\ii\gvec\cdot\Rvec_a}.
+\end{equation}
+The phase is just the Fourier translation theorem.  With
+\(\rvec'=\rvec-\Rvec_a\),
+\begin{align}
+\int V(\rvec-\Rvec_a)\e^{-\ii\gvec\cdot\rvec}\dd^3r
+&=\int V(\rvec')\e^{-\ii\gvec\cdot(\rvec'+\Rvec_a)}
+\dd^3r'\nonumber\\
+&=\e^{-\ii\gvec\cdot\Rvec_a}\widetilde V(\gvec).
+\end{align}
+Why the plus sign?  NumPy's \code{fftn} uses the negative exponential.  The
+combination of a plus-sign structure factor and \code{fftn} produces
+\(\vloc(\rvec-\Rvec_a)\).  Re-indexing \(\gvec\to-\gvec\) shows its
+equivalence to \cref{eq:structure-factor}.  For a real potential, the
+reciprocal coefficients obey Hermitian symmetry, and the tiny residual
+imaginary part is discarded.
+
+\section{The GTH projectors}
+
+\subsection{Real-space definition}
+
+A normalized GTH radial projector can be written
+\begin{equation}
+p_i^l(r)=
+\frac{\sqrt{2}\,r^{l+2(i-1)}
+\e^{-r^2/(2r_l^2)}}
+{r_l^{\,l+(4i-1)/2}
+\sqrt{\Gamma\!\left(l+\frac{4i-1}{2}\right)}}.
+\label{eq:radial-projector}
+\end{equation}
+Together with a real spherical harmonic,
+\begin{equation}
+p_{ilm}(\rvec)=p_i^l(r)Y_{lm}^{\mathrm R}(\hat{\rvec}),
+\end{equation}
+it is smooth and localized near the ion.  A projector on atom \(a\) is the
+translated function \(p^a_{ilm}(\rvec)=p_{ilm}(\rvec-\Rvec_a)\).
+
+\paragraph{Checking the normalization.}
+Squaring \cref{eq:radial-projector} leaves the radial integral
+\begin{align}
+I&=\int_0^\infty r^{2l+4i-2}\e^{-r^2/r_l^2}\dd r\nonumber\\
+&=\frac12r_l^{2l+4i-1}
+\Gamma\left(l+\frac{4i-1}{2}\right),
+\end{align}
+where \(t=r^2/r_l^2\) turns the integral into the definition of the gamma
+function.  The squared prefactor in \cref{eq:radial-projector} is exactly
+\(I^{-1}\), so
+\(\int_0^\infty|p_i^l(r)|^2r^2\dd r=1\).
+
+\subsection{Plane-wave overlaps}
+
+The code never samples \cref{eq:radial-projector} in real space.  It directly
+constructs the plane-wave overlap
+\begin{align}
+\beta^{a,lm}_{\gvec i}
+&=\langle\gvec|p^a_{ilm}\rangle\\
+&=(-\ii)^lY_{lm}^{\mathrm R}(\hat{\gvec})\,
+P_i^l(G)\,\e^{-\ii\gvec\cdot\Rvec_a},
+\label{eq:beta}
+\end{align}
+on only the active plane waves from \cref{eq:cutoff}.  The factor
+\(\Omega^{-1/2}\) needed for normalized plane waves is contained in the
+radial factor below.
+
+The three factors in \cref{eq:beta} follow separately.  First, the translated
+projector supplies \(\e^{-\ii\gvec\cdot\Rvec_a}\) by the translation theorem.
+Second, the plane-wave expansion
+\begin{equation}
+\e^{-\ii\gvec\cdot\rvec}
+=4\pi\sum_{l,m}(-\ii)^l
+j_l(Gr)Y_{lm}(\hat{\gvec})Y_{lm}^*(\hat{\rvec})
+\end{equation}
+and angular orthogonality select only the matching \(l,m\).  Finally the
+remaining radial integral is
+\begin{equation}
+P_i^l(G)\propto
+\frac{4\pi}{\sqrt\Omega}
+\int_0^\infty r^2p_i^l(r)j_l(Gr)\dd r.
+\end{equation}
+A Gaussian times \(r^{l+2(i-1)}\) transforms into a Gaussian times
+\(G^l\) and a polynomial in \(G^2\), producing the forms below.
+
+Let \(q=Gr_l\) and
+\begin{equation}
+A_l(G)=4\pi^{5/4}
+\sqrt{\frac{2^{l+1}r_l^{2l+3}}{\Omega}}\,
+\e^{-q^2/2}.
+\end{equation}
+The implemented radial transforms are
+\begin{align}
+P_1^0&=A_0,&
+P_2^0&=\frac{2(3-q^2)}{\sqrt{15}}A_0,\nonumber\\
+P_3^0&=\frac{4(15-10q^2+q^4)}
+{3\sqrt{105}}A_0,\nonumber\\
+P_1^1&=\frac{G}{\sqrt3}A_1,&
+P_2^1&=\frac{2G(5-q^2)}{\sqrt{105}}A_1,\nonumber\\
+P_3^1&=\frac{4G(35-14q^2+q^4)}
+{3\sqrt{1155}}A_1,\nonumber\\
+P_1^2&=\frac{G^2}{\sqrt{15}}A_2,&
+P_2^2&=\frac{2G^2(7-q^2)}
+{3\sqrt{105}}A_2,\nonumber\\
+P_1^3&=\frac{G^3}{\sqrt{105}}A_3.
+\label{eq:implemented-projectors}
+\end{align}
+These branches are literal translations of
+\code{\_evaluate\_projector()}.  The parser permits at most three projectors
+per \(l\), but the evaluator implements only the combinations in
+\cref{eq:implemented-projectors}.  The bundled files are compatible with
+that set; an external file requesting, for example, a third \(d\) projector
+would parse and then raise an error while projectors are built.
+
+\subsection{Real spherical harmonics}
+
+For every \(l\), the implementation loops over all
+\(m=-l,\ldots,l\).  It evaluates a real, orthonormal tesseral basis.  For
+example,
+\begin{align}
+Y_{00}^{\mathrm R}&=\frac{1}{2}\sqrt{\frac1\pi},\\
+Y_{10}^{\mathrm R}&=\frac{1}{2}\sqrt{\frac3\pi}\cos\theta,\\
+Y_{11}^{\mathrm R}&=\frac{1}{2}\sqrt{\frac3\pi}
+\sin\theta\cos\phi,\\
+Y_{1,-1}^{\mathrm R}&=\frac{1}{2}\sqrt{\frac3\pi}
+\sin\theta\sin\phi.
+\end{align}
+Changing between real and complex spherical harmonics is only a unitary
+change of basis within a complete \(l\) channel.  Summing all \(m\) values
+preserves rotational invariance.
+
+At \(G=0\), the direction \(\hat{\gvec}\) is undefined.  The code assigns a
+harmless angular direction for \(l>0\); the explicit factors
+\(G^l\) make those projector values zero.  The \(s\) harmonic is constant.
+
+\section{The non-local operation as linear algebra}
+
+For a fixed atom, \(l\), and \(m\), collect the projector columns into
+\begin{equation}
+\begin{aligned}
+B&=
+\begin{bmatrix}
+\vert&&\vert\\
+\bm\beta_1&\cdots&\bm\beta_{n_l}\\
+\vert&&\vert
+\end{bmatrix}
+&&\in\mathbb C^{N_{\mathrm{PW}}\times n_l},\\
+H&=h^l
+&&\in\mathbb R^{n_l\times n_l}.
+\end{aligned}
+\end{equation}
+For \(N_s\) trial orbitals, collect their coefficients in
+\(C\in\mathbb C^{N_{\mathrm{PW}}\times N_s}\).  One channel is applied as
+\begin{equation}
+\boxed{\quad C\longmapsto B\big[H(B^\dagger C)\big].\quad}
+\label{eq:bhb}
+\end{equation}
+This matrix expression is obtained by inserting plane-wave resolutions of the
+identity on both sides of \cref{eq:vnl}.  In indices, one channel gives
+\begin{align}
+(\vnl C)_{\gvec n}
+&=\sum_{\gvec'}\sum_{i,j}
+\langle\gvec|p_i\rangle h_{ij}
+\langle p_j|\gvec'\rangle C_{\gvec'n}\nonumber\\
+&=\sum_i B_{\gvec i}\sum_jH_{ij}
+\sum_{\gvec'}B_{\gvec'j}^*C_{\gvec'n}.
+\end{align}
+The innermost sum is \((B^\dagger C)_{jn}\); regrouping the other two sums
+then gives \(B[H(B^\dagger C)]\).
+
+This is exactly the NumPy expression
+\begin{lstlisting}[language=Python]
+result += beta @ (
+    coupling @ (beta.conj().T @ coefficients)
+)
+\end{lstlisting}
+Read it from right to left:
+\begin{enumerate}
+  \item \(B^\dagger C\): overlap each state with each localized projector;
+  \item \(H(B^\dagger C)\): mix radial projectors within the \(l\) channel;
+  \item \(B[\cdots]\): scatter the small result back over all plane waves.
+\end{enumerate}
+
+No dense \(N_{\mathrm{PW}}\times N_{\mathrm{PW}}\) matrix is formed.  If
+\(n_l\) is small, the leading work is proportional to
+\(N_{\mathrm{PW}}n_lN_s\).  The CPU and GPU paths use the same algebra.  The
+GPU path caches device copies of \(B\) and \(H\) so iterative eigensolver
+calls do not repeatedly transfer them.
+
+\subsection{Why the operator is Hermitian}
+
+The parser reads the upper triangle of every coupling matrix and reflects it:
+\(H=H^\mathsf T\).  Therefore
+\begin{equation}
+(BHB^\dagger)^\dagger
+=BH^\dagger B^\dagger=BHB^\dagger.
+\end{equation}
+Hermiticity guarantees real expectation values and is required by the
+Hermitian eigensolver.  The test
+\code{test\_nonlocal\_operator\_is\_hermitian} checks numerically that
+\begin{equation}
+\langle x|\vnl y\rangle
+=\langle\vnl x|y\rangle.
+\end{equation}
+
+\section{Decoding a parameter file}
+
+Consider \path{pypwdft/psp/pade/C-q4}:
+\begin{lstlisting}
+C GTH-PADE-q4 GTH-LDA-q4
+    2    2
+    0.34883045  2  -8.51377110  1.22843203
+    2
+    0.30455321  1   9.52284179
+    0.23267730  0
+\end{lstlisting}
+It means:
+\begin{enumerate}
+  \item The header identifies carbon, the GTH-PADE/LDA family, and the
+  \(q4\) valence partition.
+  \item The occupation integers sum to \(\zion=2+2=4\).  The parser needs
+  only their sum.
+  \item \(r_{\mathrm{loc}}=0.34883045\) bohr.  Two local coefficients follow:
+  \(C_1=-8.51377110\), \(C_2=1.22843203\); \(C_3=C_4=0\).
+  \item The next integer is \(l_{\max}=2\) in the file convention used by
+  the parser: there are two channel records, \(l=0\) and \(l=1\).
+  It is a count, not an inclusive highest-\(l\) index.
+  \item The \(s\) channel has \(r_0=0.30455321\), one projector, and
+  \(h_{11}^{0}=9.52284179\).
+  \item The \(p\) channel records \(r_1=0.23267730\) but zero projectors, so
+  it contributes nothing to \(\vnl\).
+\end{enumerate}
+Thus one carbon atom using this file has one actual non-local projector
+column.  Hydrogen's bundled PADE file has \(l_{\max}=0\), so its
+non-local contribution is identically zero; this is why the H\(_2\)
+integration test reports \(E_{\mathrm{nl}}=0\).
+
+For a channel with several projectors, the file stores the upper triangle of
+\(h^l\) over several lines.  The parser inserts those entries and mirrors
+them.  Arrays are allocated for \(l=0,1,2,3\), at most three radial
+projectors per channel, and four local coefficients.
+
+\section{Repository Fourier and grid conventions}
+
+\subsection{The reciprocal grid}
+
+For a cubic cell of edge \(L\), reciprocal vectors have components
+\begin{equation}
+G_\alpha=\frac{2\pi n_\alpha}{L},
+\qquad n_\alpha\in\mathbb Z.
+\end{equation}
+\code{PeriodicSystem.\_\_build\_fft\_vectors()} obtains the FFT-ordered
+integers from \code{numpy.fft.fftfreq}.  The orbital mask is precisely
+\(\tfrac12G^2\le E_{\mathrm{cut}}\).  The working FFT grid is large enough
+for a density cutoff of at least \(4E_{\mathrm{cut}}\), because multiplying
+two orbitals can double the largest reciprocal wavevector and therefore
+quadruple its kinetic-energy scale.
+
+Explicitly, a density product contains
+\begin{equation}
+\psi_n^*(\rvec)\psi_n(\rvec)
+=\frac1\Omega\sum_{\gvec,\gvec'}
+c_{\gvec n}^*c_{\gvec'n}
+\e^{\ii(\gvec'-\gvec)\cdot\rvec}.
+\end{equation}
+If both orbital vectors are bounded by \(G_{\max}\), their difference can
+reach \(2G_{\max}\).  Its kinetic-energy scale is
+\(\tfrac12(2G_{\max})^2=4E_{\mathrm{cut}}\), which derives the factor four.
+
+\subsection{Normalization in the discrete FFT}
+
+NumPy defines an unnormalized forward transform and a \(1/N^3\)-normalized
+inverse transform.  If an active coefficient vector \(c_{\gvec}\) is embedded
+in the full \(N^3\) grid, PyPWDFT computes
+\begin{equation}
+\psi(\rvec_j)=
+\frac{\operatorname{ifftn}(c)_j}{C_t},
+\qquad
+C_t=\frac{\sqrt{\Omega}}{N^3}.
+\end{equation}
+Indeed, NumPy's definition is
+\begin{equation}
+\operatorname{ifftn}(c)_j
+=\frac1{N^3}\sum_\gvec c_\gvec
+\e^{\ii\gvec\cdot\rvec_j}.
+\end{equation}
+Dividing by \(C_t=\sqrt\Omega/N^3\) cancels \(N^{-3}\) and leaves
+\(\Omega^{-1/2}\sum_\gvec c_\gvec\e^{\ii\gvec\cdot\rvec_j}\).
+This recovers exactly the normalized plane-wave expression
+\cref{eq:pw-expansion}.  The coefficient-space eigensolver can consequently
+use the ordinary Euclidean inner product.
+
+\section{How the pseudopotential enters the Hamiltonian}
+
+With a GTH ion model, the Kohn--Sham Hamiltonian used by the solver is
+\begin{equation}
+\widehat H[\rho]
+=-\frac12\nabla^2
++V_{\mathrm{loc}}^{\mathrm{ions}}(\rvec)
++V_{\mathrm H}[\rho](\rvec)
++V_{\mathrm{xc}}[\rho](\rvec)
++\vnl.
+\label{eq:ks-psp}
+\end{equation}
+It contains three computational patterns:
+\begin{enumerate}
+  \item \textbf{Kinetic:} diagonal in reciprocal space,
+  \((Tc)_{\gvec}=\tfrac12G^2c_{\gvec}\).
+  \item \textbf{Local potentials:} transform \(c\) to real space, multiply
+  pointwise by \(V_{\mathrm{loc}}^{\mathrm{ions}}+V_{\mathrm H}
+  +V_{\mathrm{xc}}\), and transform back.
+  \item \textbf{Non-local potential:} apply the projector products in
+  \cref{eq:bhb} directly in the active reciprocal basis.
+\end{enumerate}
+The kinetic result is immediate because
+\begin{equation}
+-\frac12\nabla^2
+\left(\frac{\e^{\ii\gvec\cdot\rvec}}{\sqrt\Omega}\right)
+=\frac{G^2}{2}
+\left(\frac{\e^{\ii\gvec\cdot\rvec}}{\sqrt\Omega}\right).
+\end{equation}
+Every plane wave is therefore an eigenfunction of the kinetic operator; only
+its own coefficient is multiplied, so no FFT or dense matrix is needed.
+
+In condensed pseudocode, the matrix-free operation in \code{LinOpH} is
+\begin{lstlisting}[language=Python]
+psi_G[mask] = c
+kinetic = 0.5 * G2[mask] * c
+local = fftn(ifftn(psi_G) * Veff)[mask]
+result = kinetic + local + apply_nonlocal(c)
+\end{lstlisting}
+The iterative \code{eigsh} solver requests only this action; it never asks
+PyPWDFT to assemble the full Hamiltonian matrix.
+
+\section{Electron count and energy bookkeeping}
+
+\subsection{Which electron count is used?}
+
+Without a pseudopotential, the low-level system sums nuclear atomic numbers.
+With GTH, \code{GTHPseudopotential.nelec} instead sums the \(\zion\) values
+from the selected files:
+\begin{equation}
+N_e=\sum_a Z_{\mathrm{ion},a}.
+\end{equation}
+This describes a neutral cell.  The present solver then requires \(N_e\) to
+be even and occupies \(N_e/2\) spatial orbitals twice.  There is no public
+charged-cell, spin-polarized, fractional-occupation, or smearing path in this
+implementation.
+
+\subsection{Local electron--ion energy}
+
+For the converged density,
+\begin{equation}
+E_{\mathrm{e-i}}^{\mathrm{loc}}
+=\int_\Omega \rho(\rvec)
+V_{\mathrm{loc}}^{\mathrm{ions}}(\rvec)\dd^3r.
+\end{equation}
+Partitioning a uniform cell into \(N^3\) equal grid boxes turns the integral
+into the Riemann sum
+\begin{equation}
+E_{\mathrm{e-i}}^{\mathrm{loc}}
+\approx\sum_j\rho_jV_j\Delta V,
+\qquad
+\Delta V=\frac{\Omega}{N^3},
+\end{equation}
+implemented by an \code{einsum}.  The equality becomes exact for Fourier
+components represented without aliasing on the grid.
+
+\subsection{Non-local energy}
+
+For doubly occupied normalized orbitals,
+\begin{align}
+E_{\mathrm{e-i}}^{\mathrm{nl}}
+&=2\sum_{n=1}^{N_{\mathrm{occ}}}
+\langle\psi_n|\vnl|\psi_n\rangle\\
+&=2\,\mathrm{Re}\!
+\sum_{n,\gvec}c_{\gvec n}^*
+(\vnl C)_{\gvec n}.
+\label{eq:enl}
+\end{align}
+The second line is simply the coefficient-space inner product:
+\begin{equation}
+\langle\psi_n|\vnl|\psi_n\rangle
+=\sum_\gvec c_{\gvec n}^*(\vnl\bm c_n)_\gvec.
+\end{equation}
+Summing the two spin states of each occupied spatial orbital supplies the
+factor two.  The explicit real part removes only roundoff-level imaginary
+noise; Hermiticity makes the exact expectation value real.
+The factor two is spin occupancy, not part of the pseudopotential itself.
+\code{nonlocal\_energy()} and the SCF code implement the same expression.
+
+\subsection{Ion--ion energy}
+
+The residual ions carry charges \(+\zion\), not bare nuclear charges \(+Z\).
+The Ewald derivation starts by adding and subtracting a Gaussian screening
+charge, equivalently splitting
+\begin{equation}
+\frac1r=
+\underbrace{\frac{\erfc(\sqrt\alpha r)}{r}}_{\text{short-ranged}}
++\underbrace{\frac{\erf(\sqrt\alpha r)}{r}}_{\text{smooth, long-ranged}}.
+\end{equation}
+The first term converges rapidly in direct-lattice vectors \(\mathbf T\).
+The second has the reciprocal transform
+\(4\pi\e^{-G^2/(4\alpha)}/G^2\), so it converges rapidly in \(\gvec\)-space.
+One must then subtract each Gaussian's self-interaction and specify the
+periodic zero-mode/background convention.  These four pieces give
+\begin{align}
+E_{\mathrm{ion-ion}}
+={}&\frac12\sum_{a,b,\mathbf T}'\!
+\frac{Z_a^{\mathrm{ion}}Z_b^{\mathrm{ion}}\,
+\erfc(\sqrt{\alpha}|\Rvec_{ab}+\mathbf T|)}
+{|\Rvec_{ab}+\mathbf T|}
+\nonumber\\
+&+\frac{2\pi}{\Omega}\sum_{\gvec\ne0}
+\frac{\e^{-G^2/(4\alpha)}}{G^2}
+\left|\sum_aZ_a^{\mathrm{ion}}
+\e^{\ii\gvec\cdot\Rvec_a}\right|^2
+\nonumber\\
+&-\sqrt{\frac{\alpha}{\pi}}\sum_a
+(Z_a^{\mathrm{ion}})^2
+-\frac{\pi}{2\alpha\Omega}
+\left(\sum_aZ_a^{\mathrm{ion}}\right)^2.
+\label{eq:ewald}
+\end{align}
+The prime excludes the \(a=b,\mathbf T=0\) self pair.  The last term is the
+uniform-background/electroneutrality convention used by
+\code{calculate\_ewald\_sum()}.  The GTH wrapper calls that method with
+\code{valence\_charges}; the all-electron path instead uses nuclear charges.
+
+\subsection{Total energy}
+
+The reported energy is
+\begin{align}
+E_{\mathrm{tot}}
+={}&E_{\mathrm{kin}}
++E_{\mathrm{e-i}}^{\mathrm{loc}}
++E_{\mathrm{e-i}}^{\mathrm{nl}}
+\nonumber\\
+&+E_{\mathrm H}+E_{\mathrm{xc}}
++E_{\mathrm{ion-ion}}.
+\label{eq:etot}
+\end{align}
+The non-local energy must be added explicitly because it is not represented
+on the real-space potential grid.  It would be an error either to omit it or
+to count it inside the local electron--ion integral.
+
+\section{End-to-end execution trace}
+
+The complete life of a pseudopotential in one PyPWDFT calculation is:
+\begin{enumerate}
+  \item The high-level \code{PWDFT} object converts element symbols to nuclear
+  atomic numbers in a \code{PeriodicSystem}.
+  \item \code{\_build\_pseudopotential()} chooses GTH-PADE for LDA or GTH-PBE
+  for PBE.  An explicit \code{GTH(charges=\{...\})} can request another
+  bundled \(q\) value.
+  \item \code{GTHPseudopotential} converts atomic numbers back to element
+  symbols, finds one file per distinct species, and parses its parameters.
+  By default, the available file with the smallest \(q\) is selected.
+  \item It assigns one \(\zion\) to every atom and sums them to obtain the
+  explicit electron count.
+  \item \code{rebuild()} caches the full real-space local ionic field and all
+  active-basis projector matrices.  Both depend on atomic positions.
+  \item Before the SCF loop, the solver obtains the local grid, a callable
+  non-local operator, and the valence-charge Ewald energy.
+  \item During each iterative eigenvalue solve, \code{LinOpH} adds kinetic,
+  local, and non-local actions according to \cref{eq:ks-psp}.
+  \item Occupied orbitals create a new density.  Hartree and XC quantities
+  change with that density; the ionic local and non-local terms do not.
+  \item Energy evaluation uses \cref{eq:enl} and \cref{eq:etot}.
+  \item After SCF convergence, the code performs a final solve and recomputes
+  every energy term from a mutually consistent final set of orbitals and
+  density.
+\end{enumerate}
+
+\section{A map from mathematics to source}
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\begin{tabular}{@{}p{0.28\columnwidth}p{0.66\columnwidth}@{}}
+\toprule
+Concept & Current implementation location\\
+\midrule
+Plane-wave grid and cutoff &
+\path{pypwdft/psystem.py}: \code{\_\_build\_fft\_vectors},
+\code{\_\_grid\_size}, and \code{\_\_pw\_mask}\\
+Parameter selection &
+\path{pypwdft/api.py}: \code{GTH.\_build} and
+\code{\_build\_pseudopotential}\\
+Parameter parsing &
+\path{pypwdft/gth.py}: \code{\_find\_file} and \code{\_read\_gth}\\
+Local equations
+\cref{eq:vloc-fourier,eq:gzero} &
+\path{GTHPseudopotential._build_local_potential}\\
+Projector equations
+\cref{eq:beta,eq:implemented-projectors} &
+\code{\_build\_projectors}, \code{\_evaluate\_projector}, and
+\code{\_real\_spherical\_harmonic}\\
+Separable action
+\cref{eq:bhb} &
+\code{apply\_nonlocal} and \code{nonlocal\_operator}\\
+Hamiltonian
+\cref{eq:ks-psp} &
+\path{pypwdft/pypwdft.py}: \code{LinOpH.\_matvec} and GPU
+\code{\_CuPyHamiltonian.matvec}\\
+Energy
+\cref{eq:enl,eq:etot} &
+\code{PyPWDFT.scf}, \code{nonlocal\_energy}, and \code{ionic\_energy}\\
+Executable checks &
+\path{tests/test_gth.py}\\
+\bottomrule
+\end{tabular}
+\caption{A reading guide for the repository.}
+\label{tab:code-map}
+\end{table}
+
+\section{What the tests prove---and what they do not}
+
+\path{tests/test_gth.py} provides useful executable statements of the
+mathematics:
+\begin{itemize}
+  \item Parsing carbon yields \(\zion=4\), the documented
+  \(r_{\mathrm{loc}}\), and local coefficients.
+  \item The bundled PBE family gives a different, expected
+  \(r_{\mathrm{loc}}\).
+  \item Random-vector inner products verify Hermiticity of \(\vnl\).
+  \item \code{nonlocal\_energy()} matches an independently written
+  expectation value.
+  \item A Hamiltonian with zero local potential equals kinetic plus non-local
+  action.
+  \item Moving atoms invalidates cached phases and potentials until
+  \code{rebuild()} is called.
+  \item The Ewald routine produces a different answer when passed valence
+  rather than nuclear charges.
+  \item Small H\(_2\) SCF calculations exercise both LDA/PADE and PBE/PBE
+  integration.
+\end{itemize}
+
+These tests establish internal consistency.  They do not by themselves
+establish transferability or reproduce the atomic scattering tests used to
+generate a potential.  Scientific validation additionally requires
+comparison with trusted calculations or experiment and convergence with
+respect to cutoff, cell size, and other numerical settings.
+
+\section{Choosing and converging a potential}
+
+\subsection{Match the XC family}
+
+The bundled \code{pade} parameters are intended for LDA and the \code{pbe}
+parameters for PBE.  The high-level API enforces that match for bundled data.
+The name ``PADE'' here labels the GTH LDA parameter family; it is not the
+plane-wave basis and not an alternative SCF algorithm.
+
+\subsection{Understand \texorpdfstring{\(qN\)}{qN}}
+
+The suffix \(qN\) is the number of explicit valence electrons per neutral
+atom.  It is not the atom's net oxidation state and not its nuclear atomic
+number.  The repository selects the lowest available \(q\) by default.
+\begin{lstlisting}[language=Python]
+GTH(charges={"Ga": 13})
+\end{lstlisting}
+requests \code{Ga-q13} rather than the default lower-valence Ga file.
+Different \(q\) choices define different Hamiltonians and electron counts;
+their raw total energies should not be mixed casually.
+
+\subsection{Converge the plane-wave cutoff}
+
+Gaussian pseudopotentials make modest cutoffs possible, but do not make a
+particular cutoff automatically accurate.  Increase \(E_{\mathrm{cut}}\)
+until energy differences or other target observables change less than the
+desired tolerance.  A harder, smaller-core, higher-\(q\) potential commonly
+needs a larger cutoff.  The \(4E_{\mathrm{cut}}\) density-grid rule prevents
+aliasing of orbital products; it is distinct from convergence of the orbital
+basis itself.
+
+\subsection{Converge the periodic cell for molecules}
+
+PyPWDFT uses periodic boundary conditions and currently only the
+\(\Gamma\) point.  A molecule is therefore an infinite array of molecular
+images.  Increase the vacuum until image interactions are acceptably small.
+Pseudopotentials remove core cost; they do not remove finite-cell
+electrostatics.
+
+\section{Scope and limitations of this implementation}
+
+The current code is educational and deliberately compact.  When explaining
+it, keep these boundaries visible:
+\begin{itemize}
+  \item cubic periodic cells and \(\Gamma\)-point orbitals only;
+  \item spin-unpolarized, doubly occupied orbitals and an even electron count;
+  \item norm-conserving separable GTH form, not ultrasoft pseudopotentials or
+  the projector augmented-wave (PAW) method;
+  \item no non-linear core correction in the shown GTH energy functional;
+  \item no spin--orbit operator; heavy-element parameters may incorporate
+  scalar-relativistic fitting, but the Hamiltonian has no spinor channels;
+  \item no forces, stress, geometry optimization, or molecular dynamics;
+  cached geometry-dependent quantities require an explicit \code{rebuild()};
+  \item a fixed set of analytic projector branches, listed in
+  \cref{eq:implemented-projectors};
+  \item neutral cells as determined by the selected \(\zion\) values.
+\end{itemize}
+
+\section{Common misconceptions}
+
+\paragraph{``The core electrons are deleted.''}
+They are removed from the explicit variational problem, but their average
+effect and the nuclear field are represented by fitted potential parameters.
+
+\paragraph{``A pseudopotential is just \( -Z/r\) with the tip rounded.''}
+That describes only the local intuition.  Angular-momentum-dependent
+scattering requires the non-local projector operator.
+
+\paragraph{``Non-local means long-ranged.''}
+Not here.  The projectors are spatially localized Gaussians.  ``Non-local''
+means the operator is an integral/projection operator rather than pointwise
+multiplication.
+
+\paragraph{``The pseudo-wavefunction is the true wavefunction everywhere.''}
+It is intentionally different inside the core.  Near-nuclear density,
+hyperfine quantities, and core spectra generally need reconstruction or an
+all-electron/PAW treatment.
+
+\paragraph{``A larger \(q\) is always better.''}
+It treats more shells explicitly and may improve transferability for a target
+property, but costs more and can be harder.  ``Better'' is property- and
+validation-dependent.
+
+\paragraph{``The sum of Kohn--Sham eigenvalues is the total energy.''}
+It double-counts some density-dependent interactions and misses the required
+DFT corrections.  PyPWDFT assembles the explicit components in
+\cref{eq:etot}.
+
+\paragraph{``The local and non-local energies are optional diagnostics.''}
+Both belong to the Hamiltonian and total-energy functional.  Splitting them
+is a representation choice; only their consistent combination with the
+ion--ion and electronic terms is physically meaningful.
+
+\section{Two additional algebraic checks}
+
+\subsection{Local-potential matrix elements}
+
+From normalized plane waves and \cref{eq:fourier-convention},
+\begin{align}
+\langle\gvec|\vloc|\gvec'\rangle
+&=\frac1\Omega\int_\Omega
+\e^{-\ii\gvec\cdot\rvec}\vloc(\rvec)
+\e^{\ii\gvec'\cdot\rvec}\dd^3r\\
+&=\frac1\Omega
+\widetilde V_{\mathrm{loc}}(\gvec-\gvec').
+\end{align}
+The matrix is dense in reciprocal space.  Rather than form it, PyPWDFT
+transforms the orbital to real space, multiplies pointwise, and transforms
+back.  This FFT convolution is the local counterpart to the low-rank
+non-local operation.
+
+\subsection{Non-local energy in projector overlaps}
+
+Insert \cref{eq:vnl} into one expectation value:
+\begin{equation}
+\langle\psi|\vnl|\psi\rangle
+=\sum_{a,l,m}\bm q_{a,l,m}^\dagger
+h^l\bm q_{a,l,m},
+\qquad
+q_i=\langle p^a_{ilm}|\psi\rangle.
+\end{equation}
+This shows both why the operation is cheap and why off-diagonal \(h_{ij}^l\)
+values matter: they couple different radial projectors in the same angular
+channel.
+
+\section{How to explain the code aloud}
+
+A concise but accurate explanation is:
+\begin{quote}\small
+The code uses norm-conserving GTH pseudopotentials to freeze atomic core
+electrons.  Each parameter file supplies a valence ionic charge, a smooth
+local Gaussian-polynomial potential, and small angular-momentum projector
+matrices.  The local potential has an analytic Fourier transform, so the code
+evaluates it on the reciprocal FFT grid, includes atomic positions through
+structure factors, and transforms it once to real space.  The non-local part
+is kept in separable form.  For each atom and \(l,m\) channel, a matrix of
+plane-wave projector overlaps \(B\) is built analytically, and its action is
+\(B h B^\dagger c\).  The Hamiltonian combines diagonal reciprocal-space
+kinetic energy, FFT-based multiplication by all local potentials, and that
+low-rank projector action.  The total energy separately includes local and
+non-local electron--ion terms and an Ewald energy computed with valence
+ionic charges.
+\end{quote}
+
+If more detail is requested, explain in this order:
+\begin{enumerate}
+  \item why all-electron core oscillations are expensive in plane waves;
+  \item frozen core, norm conservation, and transferability;
+  \item why different \(l\) channels force a non-local term;
+  \item the GTH Gaussian form in real and reciprocal space;
+  \item the \(B h B^\dagger\) matrix product and its dimensions;
+  \item parameter parsing, electron count, and energy bookkeeping;
+  \item numerical and physical limitations.
+\end{enumerate}
+
+\section{Checklist for reading a new code path}
+
+When encountering a pseudopotential implementation, ask:
+\begin{enumerate}
+  \item What Fourier and plane-wave normalization conventions are used?
+  \item What is the active plane-wave mask and cutoff?
+  \item Which electrons are frozen, and where is \(\zion\) obtained?
+  \item How is the local \(G=0\) component defined?
+  \item What are the projector indices, shapes, phases, and harmonics?
+  \item Is the coupling matrix explicitly Hermitian?
+  \item Are atomic translations applied with a consistent phase?
+  \item Is the non-local operator included in both the Hamiltonian and energy?
+  \item Does the ion--ion term use valence rather than nuclear charges?
+  \item Does the parameter family match the XC functional?
+  \item Which projector combinations and angular momenta are supported?
+  \item What changes must invalidate geometry-dependent caches?
+\end{enumerate}
+Answering those questions for PyPWDFT reproduces essentially the whole
+implementation described in this note.
+
+\section*{Notation summary}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & Meaning\\
+\midrule
+\(\Omega\) & periodic cell volume\\
+\(\Rvec_a\) & position of ion \(a\)\\
+\(\gvec\) & reciprocal lattice vector\\
+\(E_{\mathrm{cut}}\) & orbital plane-wave cutoff\\
+\(Z\) & nuclear atomic number\\
+\(\zion\) & explicit valence/ionic charge\\
+\(r_{\mathrm{loc}},C_i\) & local GTH parameters\\
+\(r_l\) & projector radius for channel \(l\)\\
+\(i,j\) & radial-projector indices\\
+\(l,m\) & angular-momentum indices\\
+\(h^l\) & small projector coupling matrix\\
+\(B\) or \(\beta\) & plane-wave projector overlaps\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{thebibliography}{9}
+
+\bibitem{GTH1996}
+S.~Goedecker, M.~Teter, and J.~Hutter,
+``Separable dual-space Gaussian pseudopotentials,''
+\emph{Physical Review B} \textbf{54}, 1703--1710 (1996).
+\href{https://doi.org/10.1103/PhysRevB.54.1703}
+{doi:10.1103/PhysRevB.54.1703}.
+
+\bibitem{HGH1998}
+C.~Hartwigsen, S.~Goedecker, and J.~Hutter,
+``Relativistic separable dual-space Gaussian pseudopotentials from H to Rn,''
+\emph{Physical Review B} \textbf{58}, 3641--3662 (1998).
+\href{https://doi.org/10.1103/PhysRevB.58.3641}
+{doi:10.1103/PhysRevB.58.3641}.
+
+\bibitem{Krack2005}
+M.~Krack,
+``Pseudopotentials for H to Kr optimized for gradient-corrected
+exchange--correlation functionals,''
+\emph{Theoretical Chemistry Accounts} \textbf{114}, 145--152 (2005).
+\href{https://doi.org/10.1007/s00214-005-0655-y}
+{doi:10.1007/s00214-005-0655-y}.
+
+\bibitem{Hamann1979}
+D.~R. Hamann, M.~Schl\"uter, and C.~Chiang,
+``Norm-conserving pseudopotentials,''
+\emph{Physical Review Letters} \textbf{43}, 1494--1497 (1979).
+\href{https://doi.org/10.1103/PhysRevLett.43.1494}
+{doi:10.1103/PhysRevLett.43.1494}.
+
+\bibitem{Kleinman1982}
+L.~Kleinman and D.~M. Bylander,
+``Efficacious form for model pseudopotentials,''
+\emph{Physical Review Letters} \textbf{48}, 1425--1428 (1982).
+\href{https://doi.org/10.1103/PhysRevLett.48.1425}
+{doi:10.1103/PhysRevLett.48.1425}.
+
+\bibitem{Payne1992}
+M.~C. Payne, M.~P. Teter, D.~C. Allan, T.~A. Arias, and J.~D. Joannopoulos,
+``Iterative minimization techniques for ab initio total-energy
+calculations: molecular dynamics and conjugate gradients,''
+\emph{Reviews of Modern Physics} \textbf{64}, 1045--1097 (1992).
+\href{https://doi.org/10.1103/RevModPhys.64.1045}
+{doi:10.1103/RevModPhys.64.1045}.
+
+\bibitem{CP2Kmanual}
+CP2K developers, ``Pseudopotentials,'' CP2K documentation.
+\href{https://manual.cp2k.org/trunk/methods/dft/pseudopotentials.html}
+{\nolinkurl{manual.cp2k.org/trunk/methods/dft/pseudopotentials.html}}
+(accessed July 2026).
+
+\end{thebibliography}
+
+\end{document}
