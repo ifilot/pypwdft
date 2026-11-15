@@ -111,6 +111,11 @@ and normally converges faster than a fixed linear update. If an SCF calculation
 oscillates, first try a smaller ``mixing_fraction``, such as ``0.2``. For a
 plain damped update, select ``mixing="linear"``.
 
+The Kohn-Sham equations are solved with a block Davidson eigensolver, which
+restarts from the orbitals of the previous SCF iteration. Pass
+``eigensolver="arpack"`` to ``run()`` or :class:`pypwdft.SCFSettings` to use
+the Lanczos solver from ARPACK instead, for example as a cross-check.
+
 Results
 -------
 
@@ -146,6 +151,8 @@ Results expose named, typed groups instead of abbreviated dictionary keys:
     result.scf.mixing
     result.scf.mixing_fraction
     result.scf.mixing_history
+    result.scf.eigensolver
+    result.scf.hamiltonian_applications
 
 Plotting
 --------

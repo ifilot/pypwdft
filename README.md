@@ -136,6 +136,10 @@ self-consistency. Lower `mixing_fraction` if the SCF cycle oscillates, or use
 `mixing="linear"` for a conventional damped update. Settings can also be
 supplied directly to `run()`.
 
+The eigenproblem is solved with a block Davidson solver that restarts from the
+orbitals of the previous SCF iteration. Use `eigensolver="arpack"` to select
+the ARPACK Lanczos solver instead.
+
 ## Results
 
 All results are exposed via a `DFTResult` dataclass which has the following

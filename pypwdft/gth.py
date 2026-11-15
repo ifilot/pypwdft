@@ -83,6 +83,7 @@ class GTHPseudopotential:
         self.nelec = int(np.sum(self.valence_charges))
         self._local_potential = None
         self._projectors = None
+        self._channel_bounds = None
         self._device_projectors = {}
         self._geometry = None
         self.rebuild()
@@ -306,6 +307,9 @@ class GTHPseudopotential:
 
         # Stack all channels into one projector matrix with a block-diagonal
         # coupling, so the operator is applied with three matrix products.
+        self._channel_bounds = np.cumsum(
+            [0] + [beta.shape[1] for beta, _ in channels]
+        )
         if not channels:
             return np.zeros((len(gvec), 0), dtype=complex), np.zeros((0, 0))
         return (
@@ -344,6 +348,7 @@ class GTHPseudopotential:
             )
         beta, beta_h, coupling = self._device_projectors[cache_key]
         npw = self.system.get_n_plane_waves()
+        bounds = [int(bound) for bound in self._channel_bounds]
 
         def apply(coefficients):
             if coefficients.ndim not in (1, 2) or coefficients.shape[0] != npw:
@@ -351,9 +356,22 @@ class GTHPseudopotential:
                     "Expected active coefficients with shape (npw,) or "
                     "(npw, nstate)."
                 )
-            if beta.shape[1] == 0:
-                return array_module.zeros(coefficients.shape, dtype=complex)
-            return beta @ (coupling @ (beta_h @ coefficients))
+            if coefficients.ndim == 2 or array_module is not np:
+                if beta.shape[1] == 0:
+                    return array_module.zeros(coefficients.shape, dtype=complex)
+                return beta @ (coupling @ (beta_h @ coefficients))
+
+            # A single host vector comes from ARPACK, which runs its own
+            # BLAS thread pool. Going channel by channel keeps every product
+            # too small for NumPy to start a second pool; two pools taking
+            # turns slow each other down dramatically.
+            result = np.zeros(npw, dtype=complex)
+            for start, stop in zip(bounds[:-1], bounds[1:]):
+                result += beta[:, start:stop] @ (
+                    coupling[start:stop, start:stop]
+                    @ (beta_h[start:stop] @ coefficients)
+                )
+            return result
 
         return apply
 
