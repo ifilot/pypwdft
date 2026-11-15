@@ -374,25 +374,3 @@ class PeriodicSystem:
         m3 = np.arange(-s[2], s[2] + 1)
         M = np.transpose(np.meshgrid(m1, m2, m3)).reshape(-1, 3)
         return M[~np.all(M == 0, axis=1)] # remove zero-term
-    
-    def calculate_vpot(self) -> np.ndarray:
-        """
-        Construct the nuclear attraction potential
-
-        Returns:
-            np.ndarray: nuclear attraction potential in real-space
-        """
-        # calculate structure factor
-        sf = np.exp(1j * self.__kvec @ self.__atompos.T)
-        
-        with np.errstate(divide='ignore', invalid='ignore'):
-            nucpotg = -4.0 * np.pi / self.__k2
-            nucpotg[0,0,0] = 0
-
-        # produce the nuclear attraction field      
-        vpot = np.fft.fftn(np.einsum('ijk,ijkl,l->ijk', 
-                                     nucpotg, 
-                                     sf, 
-                                     self.__atomchg)) / self.__Omega
-        
-        return vpot

@@ -7,7 +7,7 @@ import numpy as np
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # import the required libraries for the test
-from pypwdft.system_builder import SystemBuilder
+from pypwdft import Structure
 
 class TestPeriodicUnitCell(unittest.TestCase):
 
@@ -16,7 +16,7 @@ class TestPeriodicUnitCell(unittest.TestCase):
         Test calculation of Ewald sum
         """
         # The Ewald energy is independent of the automatically selected grid.
-        s = SystemBuilder().from_name('CH4', sz=10, ecut=1)
+        s = Structure.from_name('CH4', cell=10)._to_periodic_system(1)
         
         # calculate Ewald sum
         Eewald = s.calculate_ewald_sum()
@@ -29,7 +29,7 @@ class TestPeriodicUnitCell(unittest.TestCase):
         Test calculation of Ewald sum
         """
         # The Ewald energy is independent of the automatically selected grid.
-        s = SystemBuilder().from_name('CO', sz=10, ecut=1)
+        s = Structure.from_name('CO', cell=10)._to_periodic_system(1)
         
         # calculate Ewald sum
         Eewald = s.calculate_ewald_sum()

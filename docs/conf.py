@@ -51,7 +51,6 @@ autodoc_typehints = 'description'
 # Mocking them only during autodoc import keeps the reference sourced from the
 # real PyPWDFT modules without requiring a working numerical backend.
 autodoc_mock_imports = [
-    'mendeleev',
     'pyfftw',
 ]
 

@@ -22,7 +22,6 @@ classifiers = [
 dependencies = [
     "scipy",
     "numpy",
-    "mendeleev",
     "pyfftw",
     "matplotlib",
 ]

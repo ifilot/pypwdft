@@ -33,7 +33,9 @@ from importlib import resources
 from pathlib import Path
 
 import numpy as np
-from mendeleev import element
+from scipy.linalg import block_diag
+
+from . import elements
 
 
 class GTHPseudopotential:
@@ -67,7 +69,7 @@ class GTHPseudopotential:
         for symbol in dict.fromkeys(self.symbols):
             charge = self.charge_overrides.get(
                 symbol,
-                self.charge_overrides.get(element(symbol).atomic_number),
+                self.charge_overrides.get(elements.atomic_number(symbol)),
             )
             self.parameters[symbol] = self._read_gth(symbol, charge)
 
@@ -80,8 +82,8 @@ class GTHPseudopotential:
 
         self.nelec = int(np.sum(self.valence_charges))
         self._local_potential = None
-        self._projector_channels = []
-        self._device_projector_channels = {}
+        self._projectors = None
+        self._device_projectors = {}
         self._geometry = None
         self.rebuild()
 
@@ -108,12 +110,11 @@ class GTHPseudopotential:
     def _get_symbols(self):
         symbols = []
         for charge in self.system.get_atom_charges():
-            atomic_number = int(charge)
-            if charge != atomic_number or atomic_number < 1:
+            if charge != int(charge) or charge < 1:
                 raise ValueError(
                     "GTH atom identities require positive integer atomic numbers."
                 )
-            symbols.append(element(atomic_number).symbol)
+            symbols.append(elements.symbol(charge))
         return tuple(symbols)
 
     def _find_file(self, symbol, charge):
@@ -188,9 +189,14 @@ class GTHPseudopotential:
         }
 
     @property
+    def label(self):
+        """Short name of the ionic model, such as ``GTH-PBE``."""
+        return f"GTH-{self.family.upper()}"
+
+    @property
     def nprojectors(self):
         """Total number of atom-centred non-local projector functions."""
-        return sum(channel[0].shape[1] for channel in self._projector_channels)
+        return self._projectors[0].shape[1]
 
     def __getitem__(self, symbol):
         return self.parameters[symbol]
@@ -202,8 +208,8 @@ class GTHPseudopotential:
             raise ValueError("Atoms cannot be added after constructing a pseudopotential.")
         self._geometry = positions
         self._local_potential = self._build_local_potential()
-        self._projector_channels = self._build_projectors()
-        self._device_projector_channels.clear()
+        self._projectors = self._build_projectors()
+        self._device_projectors.clear()
         return self
 
     def _check_geometry(self):
@@ -297,33 +303,29 @@ class GTHPseudopotential:
                             * phase
                         )
                     channels.append((beta, coupling))
-        return channels
+
+        # Stack all channels into one projector matrix with a block-diagonal
+        # coupling, so the operator is applied with three matrix products.
+        if not channels:
+            return np.zeros((len(gvec), 0), dtype=complex), np.zeros((0, 0))
+        return (
+            np.hstack([beta for beta, _ in channels]),
+            block_diag(*[coupling for _, coupling in channels]),
+        )
 
     def apply_nonlocal(self, coefficients):
         """Apply the non-local GTH operator to active PW coefficients."""
-        self._check_geometry()
-        coefficients = np.asarray(coefficients)
-        one_dimensional = coefficients.ndim == 1
-        if one_dimensional:
-            coefficients = coefficients[:, None]
-        if coefficients.ndim != 2 or coefficients.shape[0] != self.system.get_n_plane_waves():
-            raise ValueError("Expected active coefficients with shape (npw,) or (npw, nstate).")
-
-        result = np.zeros_like(coefficients, dtype=complex)
-        for beta, coupling in self._projector_channels:
-            result += beta @ (coupling @ (beta.conj().T @ coefficients))
-        return result[:, 0] if one_dimensional else result
+        return self.nonlocal_operator(np)(np.asarray(coefficients))
 
     def nonlocal_operator(self, array_module=np):
         """Return a non-local operator using NumPy or a GPU array module.
 
-        GPU projector arrays are copied once and cached until :meth:`rebuild`
-        is called.  This keeps projector applications inside the device during
-        iterative eigensolver calls.
+        The geometry is validated once, here, rather than on every
+        application. Device copies of the projector arrays are cached until
+        :meth:`rebuild` is called, which keeps projector applications inside
+        the device during iterative eigensolver calls.
         """
         self._check_geometry()
-        if array_module is np:
-            return self.apply_nonlocal
 
         module_name = array_module.__name__
         try:
@@ -331,27 +333,27 @@ class GTHPseudopotential:
         except AttributeError:
             device_id = None
         cache_key = (module_name, device_id)
-        if cache_key not in self._device_projector_channels:
-            self._device_projector_channels[cache_key] = [
-                (array_module.asarray(beta), array_module.asarray(coupling))
-                for beta, coupling in self._projector_channels
-            ]
-        channels = self._device_projector_channels[cache_key]
+        if cache_key not in self._device_projectors:
+            beta, coupling = self._projectors
+            self._device_projectors[cache_key] = (
+                array_module.asarray(beta),
+                array_module.ascontiguousarray(
+                    array_module.asarray(beta.conj().T)
+                ),
+                array_module.asarray(coupling),
+            )
+        beta, beta_h, coupling = self._device_projectors[cache_key]
         npw = self.system.get_n_plane_waves()
 
         def apply(coefficients):
-            one_dimensional = coefficients.ndim == 1
-            if one_dimensional:
-                coefficients = coefficients[:, None]
-            if coefficients.ndim != 2 or coefficients.shape[0] != npw:
+            if coefficients.ndim not in (1, 2) or coefficients.shape[0] != npw:
                 raise ValueError(
                     "Expected active coefficients with shape (npw,) or "
                     "(npw, nstate)."
                 )
-            result = array_module.zeros_like(coefficients, dtype=complex)
-            for beta, coupling in channels:
-                result += beta @ (coupling @ (beta.conj().T @ coefficients))
-            return result[:, 0] if one_dimensional else result
+            if beta.shape[1] == 0:
+                return array_module.zeros(coefficients.shape, dtype=complex)
+            return beta @ (coupling @ (beta_h @ coefficients))
 
         return apply
 

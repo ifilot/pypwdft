@@ -82,7 +82,7 @@ def test_nonlocal_operator_is_used_by_hamiltonian():
 
     kinetic = 0.5 * system.get_pw_k2().ravel()[system.get_pw_mask().ravel()]
     expected = kinetic * coefficients + gth.apply_nonlocal(coefficients)
-    np.testing.assert_allclose(hamiltonian @ coefficients, expected)
+    np.testing.assert_allclose(hamiltonian.matvec(coefficients), expected)
 
 
 def test_geometry_change_requires_rebuild():

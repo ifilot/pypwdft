@@ -79,7 +79,7 @@ output should resemble:
    PyPWDFT self-consistent field calculation
    ------------------------------------------------------------------------
    XC functional          : PBE
-   Ionic model            : GTH-PBE pseudopotential
+   Ionic model            : GTH-PBE
    FFT backend            : pyFFTW (CPU)
    Wavefunction cutoff    : 10 Ha (272.11 eV)
    Density cutoff         : 40 Ha

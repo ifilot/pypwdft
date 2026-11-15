@@ -41,7 +41,7 @@ class TestPeriodicUnitCell(unittest.TestCase):
 
         original_eigsh = solver_module.scipy.sparse.linalg.eigsh
 
-        def inspect_eigsh(operator, count, *, which, v0):
+        def inspect_eigsh(operator, count, *, which, v0, tol):
             self.assertEqual(v0.shape, (operator.shape[0],))
             self.assertEqual(count, 2)
             raise EigensolverReached
@@ -49,7 +49,9 @@ class TestPeriodicUnitCell(unittest.TestCase):
         solver_module.scipy.sparse.linalg.eigsh = inspect_eigsh
         try:
             with self.assertRaises(EigensolverReached):
-                PyPWDFT(system, fft="numpy").scf(nsol=2)
+                PyPWDFT(system, fft="numpy").scf(
+                    nsol=2, eigensolver="arpack"
+                )
         finally:
             solver_module.scipy.sparse.linalg.eigsh = original_eigsh
 
@@ -256,7 +258,8 @@ def test_verbose_scf_prints_calculation_summary(capsys):
     )
     assert "Plane waves            :" in output
     assert "Atom positions (bohr)" in output
-    assert "Z=1" in output
+    assert "  1  H " in output
+    assert "Ionic model            : all-electron" in output
     assert "Density mixing         : Pulay (fraction=0.5, history=6)" in output
     assert "SCF iterations" in output
 

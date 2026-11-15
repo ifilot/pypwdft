@@ -25,8 +25,9 @@ from importlib import resources
 from pathlib import Path
 
 import numpy as np
-from mendeleev import element
 
+from . import elements, xc as xc_functionals
+from .allelectron import AllElectron
 from .gth import GTHPseudopotential
 from .psystem import PeriodicSystem
 from .pypwdft import PyPWDFT
@@ -69,7 +70,9 @@ class Structure:
             raise ValueError("cell must be positive and finite.")
 
         # validate symbols and positions
-        normalised_symbols = tuple(element(symbol).symbol for symbol in symbols)
+        normalised_symbols = tuple(
+            elements.symbol(elements.atomic_number(symbol)) for symbol in symbols
+        )
         coordinates = np.asarray(positions, dtype=float)
         if coordinates.shape != (len(normalised_symbols), 3):
             raise ValueError("positions must have shape (len(symbols), 3).")
@@ -111,7 +114,9 @@ class Structure:
     @property
     def atomic_numbers(self):
         """Atomic numbers in structure order."""
-        return np.asarray([element(symbol).atomic_number for symbol in self.symbols])
+        return np.asarray(
+            [elements.atomic_number(symbol) for symbol in self.symbols]
+        )
 
     @classmethod
     def from_name(cls, name, *, cell=10.0, center=True):
@@ -216,6 +221,9 @@ class SCFSettings:
         Damping applied to each density residual. Must be in ``(0, 1]``.
     mixing_history : int, optional
         Number of recent residuals retained by Pulay mixing.
+    eigensolver : {'davidson', 'arpack'}, optional
+        Iterative eigensolver. Davidson restarts from the orbitals of the
+        previous SCF iteration and is the default.
     """
 
     convergence: float = 1e-5
@@ -226,6 +234,7 @@ class SCFSettings:
     mixing: str = "pulay"
     mixing_fraction: float = 0.5
     mixing_history: int = 6
+    eigensolver: str = "davidson"
 
     def __post_init__(self):
         if self.convergence <= 0:
@@ -249,6 +258,10 @@ class SCFSettings:
             or self.mixing_history < 2
         ):
             raise ValueError("mixing_history must be an integer of at least 2.")
+        eigensolver = str(self.eigensolver).lower()
+        if eigensolver not in {"davidson", "arpack"}:
+            raise ValueError("eigensolver must be 'davidson' or 'arpack'.")
+        object.__setattr__(self, "eigensolver", eigensolver)
 
 #-------------------------------------------------------------------------------
 
@@ -306,6 +319,8 @@ class SCFInfo:
     mixing: str
     mixing_fraction: float
     mixing_history: int
+    eigensolver: str
+    hamiltonian_applications: int
 
 #-------------------------------------------------------------------------------
 
@@ -347,6 +362,8 @@ class DFTResult:
             mixing=str(data["mixing"]),
             mixing_fraction=float(data["mixing_fraction"]),
             mixing_history=int(data["mixing_history"]),
+            eigensolver=str(data["eigensolver"]),
+            hamiltonian_applications=int(data["hamiltonian_applications"]),
         )
 
     @property
@@ -470,9 +487,10 @@ class PWDFT:
         fft_backend=None,
     ):
         # validate inputs and build the internal PyPWDFT engine
-        xc = str(xc).lower()
-        if xc not in _GTH_FAMILY_FOR_XC:
-            raise ValueError("xc must be 'lda' or 'pbe'.")
+        try:
+            xc = xc_functionals.normalise(xc)
+        except ValueError:
+            raise ValueError("xc must be 'lda' or 'pbe'.") from None
 
         # build the internal numerical system used by the solver
         if not isinstance(structure, Structure):
@@ -505,11 +523,7 @@ class PWDFT:
         self.density_cutoff = system.get_density_ecut()
         self.xc = xc
         self._ionic_model = ionic_model
-        self.ionic_model = (
-            "all-electron"
-            if ionic_model is None
-            else f"gth-{ionic_model.family}"
-        )
+        self.ionic_model = ionic_model.label.lower()
         self.device = device
         self.fft_backend = fft_backend
         self._engine = PyPWDFT(
@@ -531,6 +545,7 @@ class PWDFT:
         mixing=None,
         mixing_fraction=None,
         mixing_history=None,
+        eigensolver=None,
     ):
         """Run the SCF calculation and return a :class:`DFTResult`.
 
@@ -554,6 +569,7 @@ class PWDFT:
             "mixing": mixing,
             "mixing_fraction": mixing_fraction,
             "mixing_history": mixing_history,
+            "eigensolver": eigensolver,
         }
         settings = replace(
             settings,
@@ -568,25 +584,18 @@ class PWDFT:
             mixing=settings.mixing,
             mixing_fraction=settings.mixing_fraction,
             mixing_history=settings.mixing_history,
-        )
-        nelectrons = (
-            self._ionic_model.nelec
-            if self._ionic_model is not None
-            else self._system.get_nelec()
+            eigensolver=settings.eigensolver,
         )
         return DFTResult(
-            data, system=self._system, noccupied=int(nelectrons) // 2
+            data,
+            system=self._system,
+            noccupied=int(self._ionic_model.nelec) // 2,
         )
 
     def __repr__(self):
-        ionic = (
-            "all-electron"
-            if self._ionic_model is None
-            else f"GTH-{self._ionic_model.family.upper()}"
-        )
         return (
             f"PWDFT(xc={self.xc!r}, cutoff={self.cutoff:g} Ha, "
-            f"ionic_model={ionic!r}, device={self.device!r})"
+            f"ionic_model={self._ionic_model.label!r}, device={self.device!r})"
         )
 
 
@@ -605,16 +614,16 @@ def _validate_gth_family(family, xc, *, custom_path=False):
 
 def _build_pseudopotential(specification, *, system, xc):
     """
-    Build a pseudopotential from the given specification.
+    Build the ionic model from the given specification.
     """
     if specification is None:
-        return None
+        return AllElectron(system)
     if isinstance(specification, GTH):
         return specification._build(system, xc)
     if isinstance(specification, str):
         name = specification.lower()
         if name == "all-electron":
-            return None
+            return AllElectron(system)
         if name == "gth":
             return GTH()._build(system, xc)
         if name in {"gth-pbe", "gth-pade"}:

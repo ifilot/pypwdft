@@ -40,6 +40,8 @@ def solver_result(norb=1, npts=5):
         "mixing": "pulay",
         "mixing_fraction": 0.5,
         "mixing_history": 6,
+        "eigensolver": "davidson",
+        "hamiltonian_applications": 42,
         "ecut": 2.0,
         "density_ecut": 8.0,
         "npw": 33,
@@ -55,6 +57,46 @@ def test_structure_from_name_separates_geometry_from_cutoff():
     assert structure.cell == pytest.approx(10.0)
     assert structure.positions.mean(axis=0) == pytest.approx([5.0, 5.0, 5.0])
     assert "atoms=2" in repr(structure)
+
+def test_structure_builds_periodic_system():
+    system = Structure.from_name("CH4", cell=10)._to_periodic_system(5)
+
+    np.testing.assert_allclose(
+        system.get_atom_positions(),
+        [
+            [5.00000000, 5.00000000, 5.00000000],
+            [6.19575624, 6.19575624, 6.19575624],
+            [3.80424376, 3.80424376, 6.19575624],
+            [3.80424376, 6.19575624, 3.80424376],
+            [6.19575624, 3.80424376, 3.80424376],
+        ],
+        atol=1e-4,
+    )
+    np.testing.assert_array_equal(system.get_atom_charges(), [6, 1, 1, 1, 1])
+
+
+def test_structure_normalises_and_validates_symbols():
+    structure = Structure(["c", "O"], [[0, 0, 0], [2, 0, 0]], 10)
+
+    assert structure.symbols == ("C", "O")
+    assert list(structure.atomic_numbers) == [6, 8]
+    with pytest.raises(ValueError, match="unknown element symbol"):
+        Structure(["Xx"], [[0, 0, 0]], 10)
+
+
+def test_all_electron_model_and_xc_alias():
+    calculation = PWDFT(
+        Structure.from_name("H2", cell=8),
+        cutoff=2,
+        xc="svwn5",
+        pseudopotential="all-electron",
+        fft_backend="numpy",
+    )
+
+    assert calculation.xc == "lda"
+    assert calculation.ionic_model == "all-electron"
+    assert "ionic_model='all-electron'" in repr(calculation)
+
 
 def test_structure_from_xyz_treats_cell_as_bohr(tmp_path):
     xyz = tmp_path / "h.xyz"
@@ -98,6 +140,7 @@ def test_pwdft_builds_matching_gth_and_translates_run_options(monkeypatch):
         "mixing": "linear",
         "mixing_fraction": 0.25,
         "mixing_history": 4,
+        "eigensolver": "davidson",
     }
     assert isinstance(result, DFTResult)
     assert result.energy.total == -1.25

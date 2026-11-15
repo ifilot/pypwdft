@@ -1,17 +1,17 @@
 import numpy as np
 import pytest
 
+from pypwdft import xc
 from pypwdft.psystem import PeriodicSystem
 from pypwdft.pypwdft import PyPWDFT
 
 
 def test_vwn5_correlation_reference_values():
     """Check the spin-unpolarized VWN5 Ceperley-Alder fit."""
-    calculator = PyPWDFT(PeriodicSystem(10, ecut=1), fft="numpy")
     rs = np.array([0.5, 1.0, 2.0, 5.0, 10.0])
     density = 3 / (4 * np.pi * rs**3)
 
-    energy, potential = calculator._PyPWDFT__lda_c_vwn(density)
+    energy, potential = xc.lda_c_vwn(density)
 
     np.testing.assert_allclose(
         energy,
@@ -42,7 +42,6 @@ def test_vwn5_correlation_reference_values():
 def test_pbe_periodic_reference_values():
     """Check PBE energy and its FFT-based GGA potential."""
     system = PeriodicSystem(10, ecut=1)
-    calculator = PyPWDFT(system, fft="numpy", functional="pbe")
     points = system.get_r()
     density = (
         0.02
@@ -50,7 +49,7 @@ def test_pbe_periodic_reference_values():
         + 0.002 * np.sin(4 * np.pi * points[..., 1] / 10)
     )
 
-    energy, potential = calculator._PyPWDFT__calculate_xc(density)
+    energy, potential = xc.evaluate("pbe", density, system.get_pw_k())
 
     np.testing.assert_allclose(
         energy.ravel()[:5],
