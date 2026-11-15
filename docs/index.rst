@@ -20,12 +20,13 @@ Features and scope
 * Unit cells are limited to cubes.
 * GTH frozen-core pseudopotentials with local and non-local terms.
 * Sampling is currently limited to the :math:`\Gamma`-point.
-* Lowest Kohn-Sham states are found using the Arnoldi iterative procedure.
+* Lowest Kohn-Sham states are found with a block Davidson solver; the ARPACK
+  Lanczos solver is available as a cross-check.
 * Slater exchange functional
 * Vosko-Wilk-Nusair correlation functional (VWN5)
 * Perdew-Burke-Ernzerhof (PBE) exchange-correlation functional
-* Dualism: the same basis set is used to describe both the molecular orbitals
-  as well as the electron density.
+* Separate cutoffs for the orbitals and the electron density; by default the
+  density cutoff is four times the orbital cutoff.
 * :class:`pypwdft.Structure` loads bundled molecules and XYZ structures.
 * The self-consistent field procedure allows for verbose (detailed output)
 * Variables and matrices relevant to the computation are accessible to the user

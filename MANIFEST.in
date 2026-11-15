@@ -1,2 +1,3 @@
 include pypwdft/molecules/*.xyz
 recursive-include pypwdft/psp *
+include CHANGELOG.md

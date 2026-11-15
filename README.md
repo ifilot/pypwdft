@@ -215,6 +215,17 @@ Valence molecular orbitals of benzene and first three unoccupied orbitals:
 
 ![Valence molecular orbitals of CO](img/orbs_benzene.png)
 
+## Acknowledgements
+
+The bundled GTH-PADE and GTH-PBE pseudopotential parameters originate from the
+[CP2K data repository](https://github.com/cp2k/cp2k-data) and were obtained
+through [eminus](https://github.com/wangenau/eminus). The GTH implementation
+in `pypwdft/gth.py` is adapted from eminus (Apache-2.0). See
+[`pypwdft/psp/NOTICE`](pypwdft/psp/NOTICE) for licensing details and the
+publications to cite.
+
 ## License
 
 PyPWDFT is distributed under the GNU General Public License version 3 or later.
+Third-party components keep their own licenses; see
+[`pypwdft/psp/NOTICE`](pypwdft/psp/NOTICE).

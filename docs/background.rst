@@ -278,3 +278,14 @@ Other educational software
 * `HFCXX <https://github.com/ifilot/hfcxx>`_: Hartree--Fock code in C++.
 * `DFTCXX <https://github.com/ifilot/dftcxx>`_: localized-orbital DFT code in
   C++.
+
+Acknowledgements
+----------------
+
+The bundled GTH-PADE and GTH-PBE parameter files originate from the `CP2K data
+repository <https://github.com/cp2k/cp2k-data>`_ and were obtained through
+`eminus <https://github.com/wangenau/eminus>`_. The GTH formulas and
+parameter-file parsing in ``pypwdft/gth.py`` are adapted from eminus
+(Apache-2.0). Licensing details and the publications to cite are listed in the
+`NOTICE <https://github.com/ifilot/pypwdft/blob/master/pypwdft/psp/NOTICE>`_
+file distributed with the pseudopotentials.

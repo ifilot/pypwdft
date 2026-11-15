@@ -1,4 +1,32 @@
-The pseudopotential parameter files in pade/ and pbe/ were copied from the
-eminus 3.2.2 distribution. eminus records that these files originate from the
-CP2K data repository and describes them as GPL-2.0 licensed:
-https://github.com/cp2k/cp2k-data
+PyPWDFT third-party notices
+===========================
+
+GTH pseudopotential parameter files (pade/ and pbe/)
+----------------------------------------------------
+The parameter files in pade/ and pbe/ were copied unchanged from the eminus
+3.2.2 distribution (https://github.com/wangenau/eminus). eminus records that
+they are identical to the files in the CP2K data repository,
+https://github.com/cp2k/cp2k-data, and describes CP2K as licensed under the
+GNU General Public License, version 2. The cp2k-data repository distributes
+the GPL version 2 license text and does not state whether "or any later
+version" applies to the data files.
+
+Please cite the original publications when using these parameters:
+
+  S. Goedecker, M. Teter, and J. Hutter, Phys. Rev. B 54, 1703 (1996),
+  https://doi.org/10.1103/PhysRevB.54.1703.
+  C. Hartwigsen, S. Goedecker, and J. Hutter, Phys. Rev. B 58, 3641 (1998),
+  https://doi.org/10.1103/PhysRevB.58.3641.
+  M. Krack, Theor. Chem. Acc. 114, 145 (2005),
+  https://doi.org/10.1007/s00214-005-0655-y.
+
+GTH implementation (pypwdft/gth.py)
+-----------------------------------
+The GTH formulas and parameter-file parsing in pypwdft/gth.py, and the
+package files pade/__init__.py and pbe/__init__.py, are adapted from eminus,
+Copyright 2021 and 2023 the eminus developers, licensed under the Apache
+License, Version 2.0. The full license text is in LICENSE.eminus in this
+directory. Please cite:
+
+  W. T. Schulze et al., SoftwareX 29, 102035 (2025),
+  https://doi.org/10.1016/j.softx.2025.102035.

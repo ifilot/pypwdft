@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 from pypwdft import PWDFT, Structure
 
@@ -13,7 +15,7 @@ def main():
         cutoff=10,              # wavefunction cutoff in Hartree
         xc="pbe",               # exchange-correlation functional
         pseudopotential="gth",  # pseudopotential family
-        device="cpu",           # device to use for calculations (cpu or cuda)
+        device="cpu",           # "cuda" runs on a GPU (requires CuPy)
     )
     result = calculation.run(
         convergence=1e-6,
@@ -25,7 +27,7 @@ def main():
     print("Total energy:", result.energy.total)
     result.plot_orbitals(
         plane="xz",
-        save="examples/example_h2_contours.png",
+        save=Path(__file__).with_name("example_h2_contours.png"),
         occupied=False,
     )
     plt.show()

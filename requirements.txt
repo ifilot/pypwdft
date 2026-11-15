@@ -1,4 +1,6 @@
-numpy==1.26.4
-scipy==1.13.0
-pyfftw==0.13.1
+# Runtime dependencies; keep in sync with [project.dependencies] in pyproject.toml.
+numpy
+scipy
+pyfftw
 threadpoolctl
+matplotlib
