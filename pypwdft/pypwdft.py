@@ -24,12 +24,20 @@ import scipy.fft
 import scipy.sparse.linalg
 from . import xc
 from .allelectron import AllElectron
-from .davidson import davidson, initial_guess
+from .davidson import conjugation_partner, davidson, initial_guess
+from .lanczos import lanczos_lowest, start_vector
+from .fft import (GridFFT, check_fftw_threads, limit_blas_threads,
+                  resolve_threads)
 from .mixing import DensityMixer
 from .psystem import PeriodicSystem
 
-# Number of threads used by the pyFFTW plans.
+# Default number of FFT threads, used when no explicit ``threads`` argument
+# is given.
 FFTW_THREADS = 1
+
+# Upper bound, in bytes, on one batch of FFT grids in a block Hamiltonian
+# application (generic and GPU backends). Larger blocks are split.
+FFT_BATCH_BYTES = 2**28
 
 # Ratio between the eigensolver tolerance and the SCF density residual.
 EIG_TOL_FACTOR = 1e-2
@@ -43,7 +51,8 @@ class PyPWDFT:
     Class that encapsulates the planewave DFT method
     """
     def __init__(self, sys:PeriodicSystem, fft:str='pyfftw',
-                 pseudopotential=None, functional:str='lda'):
+                 pseudopotential=None, functional:str='lda',
+                 threads:int=None):
         """
         Build PyPWDFT class
 
@@ -56,8 +65,15 @@ class PyPWDFT:
                 to an all-electron Coulomb potential.
             functional (str, optional): Exchange-correlation functional.
                 Supported values are ``'lda'`` (SVWN5) and ``'pbe'``.
+            threads (int, optional): Number of FFT threads for the
+                ``'pyfftw'`` and ``'scipy'`` backends. Defaults to the module
+                value ``FFTW_THREADS``. With more than one FFT thread, BLAS
+                is restricted to a single thread during the SCF procedure,
+                because the two thread pools otherwise compete for the same
+                cores.
         """
         self.__s = sys
+        self.__threads = None if threads is None else resolve_threads(threads)
         self.__fft = fft.lower()
         if self.__fft not in {'pyfftw', 'numpy', 'scipy', 'cupy'}:
             raise ValueError(f'Unknown FFT backend: {fft}')
@@ -97,6 +113,23 @@ class PyPWDFT:
         Returns:
             dict: Dictionary containing system results
         """
+        threads = 1
+        if self.__fft in ('pyfftw', 'scipy'):
+            threads = resolve_threads(
+                FFTW_THREADS if self.__threads is None else self.__threads
+            )
+        if self.__fft == 'pyfftw':
+            check_fftw_threads(threads)
+        with limit_blas_threads(threads):
+            return self.__scf(threads, tol, nsol, verbose, density_tol,
+                              maxiter, mixing, mixing_fraction,
+                              mixing_history, eigensolver)
+
+    def __scf(self, threads, tol, nsol, verbose, density_tol, maxiter,
+              mixing, mixing_fraction, mixing_history, eigensolver) -> dict:
+        """
+        Body of :meth:`scf`, run with the thread pools already configured.
+        """
         # grab a set of auxiliary variables from the PeriodicSystem class
         tstart = timeit.default_timer()     # keep track of overall time
         npts = self.__s.get_npts()          # #gridpoints per Cart. dir.
@@ -126,6 +159,9 @@ class PyPWDFT:
         else:
             xp, sparse_linalg = np, scipy.sparse.linalg
         self.__xp = xp
+        # one FFT interface for every transform outside the Hamiltonian
+        self.__grid_fft = GridFFT(self.__fft, xp=xp, threads=threads)
+        grid_fft = self.__grid_fft
 
         mixer = DensityMixer(
             xp,
@@ -176,12 +212,22 @@ class PyPWDFT:
         # construct initial search vector, this vector is kept consistent for
         # reproduction purposes
         kinetic = 0.5 * k2[pw_mask]         # kinetic energy per plane wave
+        # Index of -G for every plane wave. With it the eigensolvers stay
+        # within the real-space-real functions, c(-G) = conj(c(G)), which the
+        # Gamma-point Hamiltonian maps onto themselves, so that every orbital
+        # is real in real space.
+        partner = conjugation_partner(
+            np.asarray(pw_mask_host).reshape(npts, npts, npts)
+        )
+        if partner is not None:
+            partner = xp.asarray(partner)
         if eigensolver == 'davidson':
-            v0 = initial_guess(kinetic, nsol, xp)
-        elif gpu:
-            v0 = xp.eye(npw, 1, dtype=xp.complex128).ravel()
+            v0 = initial_guess(kinetic, nsol, xp, partner=partner)
         else:
-            v0 = np.eye(npw, 1).ravel()
+            # A Lanczos solver only finds states its start vector overlaps
+            # with, so the vector must not have any spatial symmetry.
+            lanczos_start = start_vector(kinetic, xp)
+            v0 = lanczos_start
         
         # container for the Kohn-Sham states in reciprocal space
         mo_fft = xp.zeros(
@@ -217,13 +263,8 @@ class PyPWDFT:
         # effective potential changes between SCF iterations.
         hamiltonian = LinOpH(
             None, npts, k2, fft=self.__fft, pw_mask=pw_mask,
-            nonlocal_operator=nonlocal_operator, xp=xp
+            nonlocal_operator=nonlocal_operator, xp=xp, threads=threads
         )
-        A = sparse_linalg.LinearOperator(
-            hamiltonian.shape, matvec=hamiltonian.matvec,
-            dtype=hamiltonian.dtype
-        )
-
         def solve(edens, v0, eig_tol=0):
             """
             Diagonalise the Hamiltonian of the input density ``edens`` and
@@ -234,21 +275,24 @@ class PyPWDFT:
             """
             # Calculate the input effective potential.
             harpot = self.__calculate_hartree_potential(edens, k2)
-            _, vxc = xc.evaluate(self.__functional, edens, kvec, xp)
+            _, vxc = xc.evaluate(
+                self.__functional, edens, kvec, xp, fft=grid_fft
+            )
             hamiltonian.nu_pot = xp.real(vpot + harpot + vxc)
 
             if eigensolver == 'davidson':
                 e, v, solved = davidson(
                     hamiltonian.matmat, v0, kinetic,
-                    tol=max(eig_tol, DAVIDSON_TOL), xp=xp
+                    tol=max(eig_tol, DAVIDSON_TOL), xp=xp, partner=partner
                 )
                 if eig_tol == 0 and not solved:
                     raise RuntimeError(
                         'The Davidson eigensolver did not converge.'
                     )
             else:
-                e, v = sparse_linalg.eigsh(
-                    A, nsol, which='SA', v0=v0, tol=eig_tol
+                e, v = lanczos_lowest(
+                    sparse_linalg, hamiltonian.matmat, nsol, v0,
+                    tol=eig_tol, xp=xp, partner=partner
                 )
 
             # Sort before selecting occupied states; eigensolver ordering
@@ -261,7 +305,7 @@ class PyPWDFT:
             for i in range(nsol):
                 mo_fft[i].fill(0)
                 mo_fft[i].reshape(-1)[pw_mask.ravel()] = v[:, i]
-                mos[i] = xp.fft.ifftn(mo_fft[i]) / Ct
+                mos[i] = grid_fft.ifftn(mo_fft[i]) / Ct
 
             output_density = xp.real(xp.einsum(
                 'ijkl,ijkl->jkl', mos[:nocc].conj(), mos[:nocc]
@@ -271,7 +315,7 @@ class PyPWDFT:
             # output density as the orbitals and kinetic energy.
             harpot = self.__calculate_hartree_potential(output_density, k2)
             fxc, _ = xc.evaluate(
-                self.__functional, output_density, kvec, xp
+                self.__functional, output_density, kvec, xp, fft=grid_fft
             )
 
             # calculate repulsion between the electrons
@@ -352,14 +396,14 @@ class PyPWDFT:
                 print('%03i | Etot = %12.8f Ht | dE = %6.4e | dn = %6.4e | dt = %6.4f s' \
                       % (it, Etot, diff, density_residual, dt))
             
-            # Restart the next eigensolve from the current Kohn-Sham states:
-            # Davidson reuses all of them, ARPACK only the lowest one.
-            v0 = v if eigensolver == 'davidson' else v[:, 0]
-            if gpu and eigensolver == 'arpack':
-                # CuPy's eigsh passes v0 directly to cuBLAS and mutates it.
-                # A column view is strided when more than one state is
-                # returned, so provide a contiguous device-owned restart.
-                v0 = xp.ascontiguousarray(v0)
+            # Restart the next eigensolve from the current Kohn-Sham states.
+            # Davidson reuses the whole block. A Lanczos solver takes a single
+            # vector: the sum of all states, plus the generic start vector so
+            # that no symmetry can be lost along the way.
+            if eigensolver == 'davidson':
+                v0 = v
+            else:
+                v0 = v.sum(axis=1) + lanczos_start
 
             if diff <= tol and density_residual <= density_tol:
                 converged = True
@@ -412,6 +456,7 @@ class PyPWDFT:
             'pseudopotential': self.__ions,
             'functional': self.__functional,
             'fft': self.__fft,
+            'threads': threads,
             'mixing': mixer.method,
             'mixing_fraction': mixer.fraction,
             'mixing_history': mixer.history,
@@ -526,7 +571,7 @@ class PyPWDFT:
         """
         # calculate reciprocal space charge density
         xp = self.__xp
-        fft_edens = xp.fft.fftn(edens)
+        fft_edens = self.__grid_fft.fftn(edens)
         
         # solve Poisson equation in reciprocal space
         potg = xp.zeros_like(fft_edens)
@@ -535,7 +580,7 @@ class PyPWDFT:
            
         
         # convert back to real space
-        harpot = xp.fft.ifftn(potg)
+        harpot = self.__grid_fft.ifftn(potg)
         
         return harpot
     
@@ -562,7 +607,7 @@ class LinOpH:
     """
     def __init__(self, nu_pot:np.ndarray, npts:int, k2:np.ndarray,
                  fft:str='pyfftw', pw_mask:np.ndarray=None,
-                 nonlocal_operator=None, xp=np):
+                 nonlocal_operator=None, xp=np, threads:int=None):
         """
         Build the Hamiltonian for matrix-vector multiplication in Arnoldi method
 
@@ -577,6 +622,8 @@ class LinOpH:
                 non-local potential to active reciprocal coefficients.
             xp (module, optional): array module owning the arrays, NumPy or
                 CuPy. Defaults to NumPy.
+            threads (int, optional): number of pyFFTW threads. Defaults to
+                the module value ``FFTW_THREADS``.
 
         Raises:
             Exception: when unknown FFT algorithm is being requested.
@@ -606,7 +653,8 @@ class LinOpH:
             self.__real = pyfftw.empty_aligned(shape, dtype='complex128')
             self.__out = pyfftw.empty_aligned(shape, dtype='complex128')
             plan = dict(axes=(0, 1, 2), flags=('FFTW_MEASURE',),
-                        threads=FFTW_THREADS)
+                        threads=resolve_threads(
+                            FFTW_THREADS if threads is None else threads))
             self.__ifft = pyfftw.FFTW(self.__psi, self.__real,
                                       direction='FFTW_BACKWARD', **plan)
             self.__fft = pyfftw.FFTW(self.__real, self.__out,
@@ -653,27 +701,47 @@ class LinOpH:
             np.ndarray: output vectors, shape ``(npw, nstate)``
         """
         nstate = block.shape[1]
-
-        # The planned pyFFTW transforms act on one grid at a time.
-        if self.__local == self.__local_pyfftw:
-            result = np.empty_like(block)
-            for i in range(nstate):
-                result[:, i] = self.matvec(block[:, i])
-            return result
-
-        # Otherwise transform all states in one batched FFT, which is what
-        # makes a GPU efficient.
         self.applications += nstate
         xp = self.xp
-        psi = xp.zeros((nstate, self.npts**3), dtype=np.complex128)
-        psi[:, self.__index] = block.T
-        psi = psi.reshape((nstate, self.npts, self.npts, self.npts))
-        axes = (1, 2, 3)
-        local = self.__fftn(
-            self.__ifftn(psi, axes=axes) * self.nu_pot, axes=axes
-        )
-        result = (0.5 * self.k2[:, None] * block
-                  + local.reshape(nstate, -1)[:, self.__index].T)
+
+        if self.__local == self.__local_pyfftw:
+            # The planned pyFFTW transforms act on one grid at a time, so
+            # only the local potential is applied state by state; the kinetic
+            # and non-local terms below act on the whole block at once.
+            local = np.empty_like(block)
+            psi = self.__psi.reshape(-1)
+            for i in range(nstate):
+                psi[self.__index] = block[:, i]
+                local[:, i] = self.__local().reshape(-1)[self.__index]
+        else:
+            # Otherwise transform the states in batched FFTs, which is what
+            # makes a GPU efficient. Batches are bounded in size and always
+            # hold a power-of-two number of states: the FFT-grid work arrays
+            # then do not grow with the number of states, and only a handful
+            # of distinct batch shapes occur. The latter matters on a GPU,
+            # where CuPy caches one cuFFT plan, with its own work area, for
+            # every batch shape it has seen.
+            grid = self.npts**3
+            largest = max(1, FFT_BATCH_BYTES // (16 * grid))
+            axes = (1, 2, 3)
+            local = xp.empty_like(block)
+            start = 0
+            while start < nstate:
+                count = 1 << (min(largest, nstate - start).bit_length() - 1)
+                stop = start + count
+                psi = xp.zeros((count, grid), dtype=np.complex128)
+                psi[:, self.__index] = block[:, start:stop].T
+                psi = psi.reshape((count, self.npts, self.npts, self.npts))
+                # in place, so that at most two batches are alive at once
+                psi = self.__ifftn(psi, axes=axes)
+                psi *= self.nu_pot
+                psi = self.__fftn(psi, axes=axes)
+                local[:, start:stop] = psi.reshape(
+                    count, grid)[:, self.__index].T
+                start = stop
+
+        result = 0.5 * self.k2[:, None] * block
+        result += local
         if self.nonlocal_operator is not None:
             result += self.nonlocal_operator(block)
         return result

@@ -116,6 +116,14 @@ restarts from the orbitals of the previous SCF iteration. Pass
 ``eigensolver="arpack"`` to ``run()`` or :class:`pypwdft.SCFSettings` to use
 the Lanczos solver from ARPACK instead, for example as a cross-check.
 
+A Lanczos solver builds its search space from one start vector and therefore
+contains only one state of every degenerate level; the others can be skipped
+without warning. PyPWDFT guards against this by verifying each Lanczos result:
+the states found are shifted out of the way and the solver is asked whether a
+lower state remains. This makes the ARPACK option reliable for degenerate
+systems, at the cost of several times more Hamiltonian applications than
+Davidson needs.
+
 Results
 -------
 

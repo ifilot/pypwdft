@@ -209,15 +209,27 @@ The reported total energy is assembled as
 Orbitals, phases, and degeneracy
 --------------------------------
 
-Plane waves and numerical eigenvectors are complex even at the
-:math:`\Gamma` point. A non-degenerate time-reversal-symmetric orbital can
-normally be made real by a single global phase rotation. Degenerate subspaces
-are different: the eigensolver may return complex unitary mixtures of equally
-valid real orbitals. A global phase applied to each state separately cannot, in
-general, undo such mixing.
+Plane waves are complex, but at the :math:`\Gamma` point the Kohn-Sham
+Hamiltonian is real in real space, so its eigenfunctions can be chosen real.
+An unconstrained eigensolver does not make that choice. It returns a
+non-degenerate orbital with an arbitrary global phase, and within a degenerate
+level it may return any complex unitary mixture of the real orbitals, such as
+:math:`(p_x + \mathrm{i} p_y)/\sqrt{2}`. A phase factor per orbital cannot
+undo such mixing, and a single member of a degenerate level cannot be made
+real at all without its partners.
 
-The plotting code removes the best global phase before displaying the real
-component. It can report the residual imaginary norm, but suppressing that
+PyPWDFT therefore constrains the eigensolvers. A real function has plane-wave
+coefficients that obey :math:`c(-\mathbf{G}) = c(\mathbf{G})^{*}`. The
+Hamiltonian maps such vectors onto each other, and between them its matrix
+elements are real. Both eigensolvers work within this set, so every orbital
+they return is real in real space to rounding accuracy. This holds within
+degenerate levels too, and also when the requested number of bands cuts
+through a degenerate level.
+
+For orbitals from another source, :func:`pypwdft.orbitals.rotate_orbitals_real`
+applies, within every degenerate level, the unitary transformation that
+minimizes the imaginary part. The plotting code uses it before displaying the
+real component. It can report the residual imaginary norm, but suppressing that
 diagnostic does not change the underlying orbital. Central molecular planes can
 also be nodal planes. Since independently normalized contours can magnify tiny
 numerical residues, ``plane="auto"`` is useful when plotting a heterogeneous

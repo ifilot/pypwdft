@@ -45,7 +45,8 @@ def normalise(functional:str) -> str:
     return name
 
 
-def evaluate(functional:str, rho:np.ndarray, kvec:np.ndarray=None, xp=np):
+def evaluate(functional:str, rho:np.ndarray, kvec:np.ndarray=None, xp=np,
+             fft=None):
     """
     Evaluate XC energy per particle and its multiplicative potential.
 
@@ -55,12 +56,15 @@ def evaluate(functional:str, rho:np.ndarray, kvec:np.ndarray=None, xp=np):
         kvec (np.ndarray, optional): plane-wave vectors of the FFT grid,
             required by gradient-corrected functionals.
         xp (module, optional): array module owning ``rho`` and ``kvec``.
+        fft (optional): object providing ``fftn`` and ``ifftn``, used for the
+            derivatives of gradient-corrected functionals. Defaults to
+            ``xp.fft``.
     """
     if functional == 'lda':
         ex, vx = lda_x(rho)
         ec, vc = lda_c_vwn(rho, xp)
         return ex + ec, vx + vc
-    return pbe(rho, kvec, xp)
+    return pbe(rho, kvec, xp, fft)
 
 
 def lda_x(rho:np.ndarray) -> (np.ndarray, np.ndarray):
@@ -110,12 +114,15 @@ def lda_c_vwn(rho:np.ndarray, xp=np) -> (np.ndarray, np.ndarray):
     return ec,vc
 
 
-def pbe(rho:np.ndarray, kvec:np.ndarray, xp=np) -> (np.ndarray, np.ndarray):
+def pbe(rho:np.ndarray, kvec:np.ndarray, xp=np,
+        fft=None) -> (np.ndarray, np.ndarray):
     """
     Spin-unpolarized PBE energy per particle and GGA potential.
     """
+    if fft is None:
+        fft = xp.fft
     rho = xp.maximum(xp.asarray(rho, dtype=float), 1e-14)
-    grad = _gradient(rho, kvec, xp)
+    grad = _gradient(rho, kvec, xp, fft)
     norm_grad = xp.linalg.norm(grad, axis=-1)
 
     # PBE exchange: LDA exchange times the enhancement factor F_x(s).
@@ -147,6 +154,11 @@ def pbe(rho:np.ndarray, kvec:np.ndarray, xp=np) -> (np.ndarray, np.ndarray):
             * norm_grad[nonzero_gradient]
         )
     )
+    # Work arrays are released as soon as they are no longer needed. A GGA
+    # evaluation otherwise holds some forty grids at once, which was measured
+    # to set the peak memory use of a calculation on a large grid.
+    del (kf, s, denominator, enhancement_correction, ex_lda, dfx_ds,
+         exchange_gradient, vx_gradient, nonzero_gradient)
 
     # PBE correlation uses the modified Perdew-Wang LDA correlation
     # together with the PBE gradient correction H.
@@ -177,12 +189,16 @@ def pbe(rho:np.ndarray, kvec:np.ndarray, xp=np) -> (np.ndarray, np.ndarray):
     vc_local = vc_lda + h + dh
     coeff_c = beta / (divt * ks) * (div - factor) / nolog
 
+    energy = xp.nan_to_num(ex + ec)
+    potential = vx_local + vc_local
+    del (ex, ec, vx_local, vc_local, ec_lda, vc_lda, rs, kf_c, ks, divt, t,
+         exponential, a, t2, at2, a2t4, divsum, div, nolog, h, factor, dh,
+         norm_grad)
+
     gradient_field = (coeff_x + coeff_c)[..., None] * grad
-    potential = vx_local + vc_local - _divergence(gradient_field, kvec, xp)
-    return (
-        xp.nan_to_num(ex + ec),
-        xp.nan_to_num(potential),
-    )
+    del coeff_x, coeff_c, grad
+    potential -= _divergence(gradient_field, kvec, xp, fft)
+    return energy, xp.nan_to_num(potential)
 
 
 def lda_c_pw_mod(rho:np.ndarray, xp=np) -> (np.ndarray, np.ndarray):
@@ -215,24 +231,30 @@ def lda_c_pw_mod(rho:np.ndarray, xp=np) -> (np.ndarray, np.ndarray):
     return ec, vc
 
 
-def _gradient(field:np.ndarray, kvec:np.ndarray, xp=np) -> np.ndarray:
+def _gradient(field:np.ndarray, kvec:np.ndarray, xp=np,
+              fft=None) -> np.ndarray:
     """
     Calculate a periodic real-space gradient using FFT derivatives.
     """
-    reciprocal = xp.fft.fftn(field)
+    if fft is None:
+        fft = xp.fft
+    reciprocal = fft.fftn(field)
     gradient = xp.empty((*field.shape, 3), dtype=float)
     for dim in range(3):
         gradient[..., dim] = xp.real(
-            xp.fft.ifftn(1j * kvec[..., dim] * reciprocal)
+            fft.ifftn(1j * kvec[..., dim] * reciprocal)
         )
     return gradient
 
 
-def _divergence(field:np.ndarray, kvec:np.ndarray, xp=np) -> np.ndarray:
+def _divergence(field:np.ndarray, kvec:np.ndarray, xp=np,
+                fft=None) -> np.ndarray:
     """
     Calculate the periodic divergence of a Cartesian vector field.
     """
+    if fft is None:
+        fft = xp.fft
     divergence = xp.zeros(field.shape[:-1], dtype=complex)
     for dim in range(3):
-        divergence += 1j * kvec[..., dim] * xp.fft.fftn(field[..., dim])
-    return xp.real(xp.fft.ifftn(divergence))
+        divergence += 1j * kvec[..., dim] * fft.fftn(field[..., dim])
+    return xp.real(fft.ifftn(divergence))

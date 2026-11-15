@@ -23,7 +23,6 @@ A heavier case::
 import argparse
 import time
 
-import pypwdft.pypwdft as engine
 from pypwdft import PWDFT, Structure
 
 
@@ -65,13 +64,13 @@ def main():
     rows = []
     for eigensolver in args.eigensolvers:
         for threads in thread_counts:
-            engine.FFTW_THREADS = threads
             calculation = PWDFT(
                 structure,
                 cutoff=args.cutoff,
                 xc=args.xc,
                 device=args.device,
                 fft_backend=args.fft_backend,
+                threads=threads,
             )
             times = []
             for _ in range(args.repeats):

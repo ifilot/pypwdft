@@ -394,6 +394,7 @@ class DFTResult:
         **plot_options,
     ):
         """Plot selected orbitals and return the Matplotlib figure and axes."""
+        from .orbitals import rotate_orbitals_real
         from .visualization import ContourPlotter
 
         if indices is None:
@@ -411,7 +412,12 @@ class DFTResult:
         columns = min(int(columns), len(indices))
         rows = int(np.ceil(len(indices) / columns))
         selected = {
-            "orbc_rs": self.orbitals.real_space[indices],
+            # Rotate within degenerate levels before selecting: a member of a
+            # degenerate level can only be made real together with its
+            # partners, also when those are not plotted.
+            "orbc_rs": rotate_orbitals_real(
+                self.orbitals.real_space, self.orbitals.energies
+            )[indices],
             "orbe": self.orbitals.energies[indices],
         }
         labels = plot_options.pop("labels", None)
@@ -473,6 +479,11 @@ class PWDFT:
         Compute device. CPU is the predictable default.
     fft_backend : {'pyfftw', 'numpy', 'scipy', 'cupy'}, optional
         Expert override for the numerical backend.
+    threads : int, optional
+        Number of FFT threads on the CPU (``'pyfftw'`` and ``'scipy'``
+        backends); defaults to one. With more than one FFT thread, BLAS is
+        restricted to a single thread during the calculation, because the two
+        thread pools otherwise compete for the same cores. Ignored on a GPU.
     """
 
     def __init__(
@@ -485,6 +496,7 @@ class PWDFT:
         pseudopotential="gth",
         device="cpu",
         fft_backend=None,
+        threads=None,
     ):
         # validate inputs and build the internal PyPWDFT engine
         try:
@@ -526,11 +538,13 @@ class PWDFT:
         self.ionic_model = ionic_model.label.lower()
         self.device = device
         self.fft_backend = fft_backend
+        self.threads = threads
         self._engine = PyPWDFT(
             system,
             fft=fft_backend,
             pseudopotential=ionic_model,
             functional=xc,
+            threads=threads,
         )
 
     def run(

@@ -30,7 +30,7 @@ class TestPeriodicUnitCell(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'did not converge'):
             PyPWDFT(s, fft='numpy').scf(maxiter=1)
 
-    def test_initial_arpack_vector_is_flat_for_multiple_bands(self):
+    def test_initial_arpack_vector_is_generic_for_multiple_bands(self):
         solver_module = importlib.import_module("pypwdft.pypwdft")
         system = PeriodicSystem(10, ecut=1)
         system.add_atom(4.3, 5, 5, 1)
@@ -41,9 +41,13 @@ class TestPeriodicUnitCell(unittest.TestCase):
 
         original_eigsh = solver_module.scipy.sparse.linalg.eigsh
 
-        def inspect_eigsh(operator, count, *, which, v0, tol):
+        def inspect_eigsh(operator, count, *, which, v0, tol, maxiter):
             self.assertEqual(v0.shape, (operator.shape[0],))
             self.assertEqual(count, 2)
+            # A Lanczos solver only finds states its start vector overlaps
+            # with, so no plane-wave coefficient may vanish by symmetry.
+            self.assertTrue(np.all(np.abs(v0) > 0))
+            self.assertGreater(maxiter, 0)
             raise EigensolverReached
 
         solver_module.scipy.sparse.linalg.eigsh = inspect_eigsh

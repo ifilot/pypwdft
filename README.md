@@ -138,7 +138,8 @@ supplied directly to `run()`.
 
 The eigenproblem is solved with a block Davidson solver that restarts from the
 orbitals of the previous SCF iteration. Use `eigensolver="arpack"` to select
-the ARPACK Lanczos solver instead.
+the ARPACK Lanczos solver instead; it is verified against missed degenerate
+states and is considerably slower, so it mainly serves as a cross-check.
 
 ## Results
 

@@ -1,4 +1,5 @@
 import unittest
+import pytest
 import numpy as np
 import scipy as sc
 import pyfftw
@@ -48,3 +49,48 @@ class TestFFT(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+@pytest.mark.parametrize("backend", ["pyfftw", "scipy", "numpy"])
+@pytest.mark.parametrize("threads", [1, 2])
+def test_grid_fft_matches_numpy(backend, threads):
+    """
+    Every CPU backend of GridFFT reproduces numpy.fft, for real and complex
+    input, and leaves its input untouched.
+    """
+    from pypwdft.fft import GridFFT
+
+    rng = np.random.default_rng(0)
+    real = rng.random((6, 6, 6))
+    field = real + 1j * rng.random((6, 6, 6))
+    original = field.copy()
+    fft = GridFFT(backend, threads=threads)
+
+    np.testing.assert_allclose(fft.fftn(field), np.fft.fftn(field), atol=1e-12)
+    np.testing.assert_allclose(fft.ifftn(field), np.fft.ifftn(field), atol=1e-12)
+    np.testing.assert_allclose(fft.fftn(real), np.fft.fftn(real), atol=1e-12)
+    np.testing.assert_array_equal(field, original)
+
+    # results are independent copies, not views of a reused plan buffer
+    first = fft.fftn(field)
+    reference = first.copy()
+    fft.fftn(real)
+    np.testing.assert_array_equal(first, reference)
+
+
+@pytest.mark.parametrize("threads", [0, -1, 1.5, True])
+def test_invalid_thread_count(threads):
+    from pypwdft.fft import GridFFT
+
+    with pytest.raises(ValueError):
+        GridFFT("pyfftw", threads=threads)
+
+
+def test_openmp_limit_warning(monkeypatch):
+    """A thread request above the OpenMP limit is reported, not ignored."""
+    import pypwdft.fft as fft
+
+    monkeypatch.setattr(fft.pyfftw, "_threading_type", "OMP", raising=False)
+    monkeypatch.setattr(fft, "openmp_thread_limit", lambda: 1)
+    with pytest.warns(RuntimeWarning, match="OpenMP is limited"):
+        fft.check_fftw_threads(4)
