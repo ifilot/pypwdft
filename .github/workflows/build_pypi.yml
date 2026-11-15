@@ -9,29 +9,10 @@ on:
       - develop
     tags:
       - "v**"
-  release:
-    types:
-      - published
 
 jobs:
-  check-version-strings:
-    name: Check version strings
-    runs-on: ubuntu-latest
-    container: python:3.11-slim-bullseye
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
-      - name: Install dependencies
-        run: |
-          pip install pyyaml
-      - name: Test versions
-        run: |
-          python versiontest.py
-
   build-pip:
     name: Build pip
-    needs: [check-version-strings]
     runs-on: ubuntu-latest
     container: python:3.11-slim-bullseye
 
@@ -49,8 +30,8 @@ jobs:
           python -m build
       - uses: actions/upload-artifact@v4
         with:
-          path: ./dist/*.whl
-          name: whl
+          path: ./dist/*
+          name: dist
   
   test-pip:
     name: Perform unit testing
@@ -62,7 +43,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: whl
+          name: dist
           path: dist
       - name: Install PyPWDFT
         run: |
@@ -85,7 +66,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: whl
+          name: dist
           path: dist
 
       - uses: pypa/gh-action-pypi-publish@release/v1

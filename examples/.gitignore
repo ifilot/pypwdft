@@ -1,3 +1,4 @@
 *.pdf
+*_contours.png
 *.ply
 *.pickle

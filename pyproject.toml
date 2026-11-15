@@ -1,29 +1,41 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pypwdft"
-version = "0.2.2"
+version = "0.3.0"
 authors = [
-  { name="Ivo Filot", email="i.a.w.filot@tue.nl" }
+  { name="Ivo Filot", email="ivo@ivofilot.nl" }
 ]
 maintainers = [
-    { name="Ivo Filot", email="i.a.w.filot@tue.nl" },
+    { name="Ivo Filot", email="ivo@ivofilot.nl" },
 ]
-description = "pypwdft"
+description = "Educational pure-Python plane-wave density functional theory code"
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "GPL-3.0-or-later"}
+license = "GPL-3.0-or-later"
+license-files = [
+    "LICENSE",
+    "pypwdft/psp/LICENSE.eminus",
+    "pypwdft/psp/NOTICE",
+]
+keywords = ["density functional theory", "plane waves", "pseudopotentials", "quantum chemistry", "education"]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
     "scipy",
     "numpy",
-    "mendeleev",
     "pyfftw",
+    "threadpoolctl",
+    "matplotlib",
 ]
 
 [project.optional-dependencies]
@@ -39,13 +51,8 @@ include-package-data = true
 where = ["."]
 include = ["pypwdft*"]
 
-[tool.conda.environment]
-name = "demo"
-channels = [
-    "ifilot",
-    "conda-forge",
-]
-
 [project.urls]
 "Homepage" = "https://www.github.com/ifilot/pypwdft"
+"Documentation" = "https://ifilot.github.io/pypwdft/"
 "Bug Tracker" = "https://www.github.com/ifilot/pypwdft/issues"
+"Changelog" = "https://github.com/ifilot/pypwdft/blob/master/CHANGELOG.md"

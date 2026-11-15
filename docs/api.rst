@@ -4,25 +4,59 @@
 API
 ===
 
-.. automodule:: pypwdft
+This reference is generated directly from the public classes exported by
+:mod:`pypwdft`. The :doc:`usage` chapter provides complete calculation
+examples.
 
-    PeriodicSystem
-    ---
+.. currentmodule:: pypwdft
 
-    .. autoclass:: PeriodicSystem
-        :members:
-        :special-members: __init__
+Calculation setup
+-----------------
 
-    PyPWDFT
-    -------------
+Structure
+~~~~~~~~~
 
-    .. autoclass:: PyPWDFT
-        :members:
-        :special-members: __init__
+.. autoclass:: pypwdft.Structure
 
-    SystemBuilder
-    -------------
+PWDFT
+~~~~~
 
-    .. autoclass:: SystemBuilder
-        :members:
-        :special-members: __init__
+.. autoclass:: pypwdft.PWDFT
+
+SCFSettings
+~~~~~~~~~~~
+
+.. autoclass:: pypwdft.SCFSettings
+
+GTH configuration
+~~~~~~~~~~~~~~~~~
+
+.. autoclass:: pypwdft.GTH
+
+Calculation results
+-------------------
+
+DFTResult
+~~~~~~~~~
+
+.. autoclass:: pypwdft.DFTResult
+
+EnergyComponents
+~~~~~~~~~~~~~~~~
+
+.. autoclass:: pypwdft.EnergyComponents
+
+OrbitalSet
+~~~~~~~~~~
+
+.. autoclass:: pypwdft.OrbitalSet
+
+BasisInfo
+~~~~~~~~~
+
+.. autoclass:: pypwdft.BasisInfo
+
+SCFInfo
+~~~~~~~
+
+.. autoclass:: pypwdft.SCFInfo
